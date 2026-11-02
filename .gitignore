@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+data/
+node_modules/
+web/dist/
+
+# Client sample data and local tooling: never versioned
+docs/Pruebas/
+.atl/
+*.rmproj
+*.dat
