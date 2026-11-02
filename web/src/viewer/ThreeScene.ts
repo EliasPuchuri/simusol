@@ -5,9 +5,11 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { DEFAULT_OPACITY } from "./defaults";
 
 export class WebGLUnavailableError extends Error {}
-export type Role = "previous" | "current";
+export type Role = "previous" | "current" | "common" | "added" | "removed";
 
-const COLORS: Record<Role, number> = { previous: 0xd9731a, current: 0x8a9199 };
+const COLORS: Record<Role, number> = {
+  previous: 0xd9731a, current: 0x8a9199, common: 0x3d9a5a, added: 0x3b78c4, removed: 0x8a4fc4,
+};
 
 function label(text: string, color: string): THREE.Sprite {
   const canvas = document.createElement("canvas");
@@ -91,7 +93,7 @@ export class ThreeScene {
       });
       this.applyOpacity(material, DEFAULT_OPACITY[role]);
       mesh.material = material;
-      mesh.renderOrder = role === "previous" ? 1 : 2;
+      mesh.renderOrder = role === "previous" ? 1 : role === "current" ? 2 : 3; // difference zones are drawn opaque, last
     });
     const group = new THREE.Group();
     group.add(gltf.scene);

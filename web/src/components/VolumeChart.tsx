@@ -21,11 +21,10 @@ export function VolumeChart({ rows }: { rows: ComparisonRow[] }) {
           <ul className="bars">
             {shown.map((d) => (
               <li key={d.key}>
-                <span className="bar-key">{d.key}</span>
+                <span className="bar-key">{d.key}{d.state && <small className="bar-state">{LABEL[d.state]}</small>}</span>
                 <span className="bar-track bar-left">{d.delta < 0 && <span className={`bar bar-${d.state ?? "none"}`} style={{ width: `${(100 * Math.abs(d.delta)) / max}%` }} />}</span>
                 <span className="bar-track bar-right">{d.delta > 0 && <span className={`bar bar-${d.state ?? "none"}`} style={{ width: `${(100 * d.delta) / max}%` }} />}</span>
                 <span className="bar-value">{`${signed(d.delta)} m³`}</span>
-                {d.state && <span className={`pill pill-state-${d.state}`}>{LABEL[d.state]}</span>}
               </li>
             ))}
           </ul>

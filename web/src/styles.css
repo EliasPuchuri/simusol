@@ -156,7 +156,9 @@ a.button { display: inline-block; padding: .55rem 1rem; border-radius: 8px; bord
 .totals small { color: var(--muted); }
 .notes { padding-left: 1.1rem; margin: .4rem 0; color: var(--muted); font-size: .85rem; }
 .bars { list-style: none; padding: 0; margin: .5rem 0; display: grid; gap: .3rem; max-height: 340px; overflow: auto; }
-.bars li { display: grid; grid-template-columns: 7rem 1fr 1fr 6.5rem auto; align-items: center; gap: .4rem; font-size: .85rem; }
+.bars li { display: grid; grid-template-columns: 7.5rem 1fr 1fr 6.5rem; align-items: center; gap: .4rem; font-size: .85rem; }
+.bar-key { display: flex; flex-direction: column; line-height: 1.2; word-break: break-all; }
+.bar-state { color: var(--muted); font-size: .72rem; }
 .bar-track { display: flex; height: .9rem; background: #f0f2f3; }
 .bar-left { justify-content: flex-end; border-radius: 4px 0 0 4px; }
 .bar-right { border-radius: 0 4px 4px 0; }
@@ -173,3 +175,11 @@ a.button { display: inline-block; padding: .55rem 1rem; border-radius: 8px; bord
 .legend { list-style: none; padding: 0; margin: .5rem 0; display: grid; gap: .2rem; font-size: .85rem; }
 .filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .5rem .8rem; margin: .8rem 0 .2rem; }
 .filters .field { margin: 0; }
+
+.zones { display: flex; flex-direction: column; gap: .5rem; margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--line); }
+.zones label.inline { display: flex; align-items: center; gap: .45rem; margin: 0; }
+.swatch-common { background: #3d9a5a; } .swatch-added { background: #3b78c4; } .swatch-removed { background: #8a4fc4; }
+.classification .table-wrap th:last-child, .classification .table-wrap td:last-child { position: sticky; right: 0; background: #fff; box-shadow: -6px 0 6px -6px #0002; }
+.classification .table-wrap th:last-child { background: #f0f2f3; }
+.classification .table-wrap table { font-size: .85rem; }
+.classification .table-wrap th, .classification .table-wrap td { padding: .4rem .55rem; vertical-align: top; }

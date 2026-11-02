@@ -74,7 +74,7 @@ export function latestOrientation(r: Row): Orientation | null {
 
 export const EXCLUSION_REASONS: Record<string, string> = {
   not_watertight: "superficie no cerrada", inconsistent_winding: "caras con sentido inconsistente",
-  zero_volume: "volumen nulo", single_failed: "el cálculo falló", pair_failed: "el cálculo del par falló",
+  zero_volume: "volumen nulo", boolean_failed: "la operación geométrica falló", single_failed: "el cálculo falló", pair_failed: "el cálculo del par falló",
 };
 export function exclusionText(reason: string): string {
   const [kind, role] = reason.split(":");

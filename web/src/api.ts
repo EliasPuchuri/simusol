@@ -171,6 +171,14 @@ export type ReviewInput = {
   expected_dip: number | null;
   comment: string;
 };
+export type RegionInfo = { status: "ok" | "empty" | "unavailable"; volume_m3?: number; triangles?: number; url?: string; reason?: string };
+export type SceneRegions = {
+  status: "ok" | "failed";
+  error: string | null;
+  provisional: boolean;
+  warnings: string[];
+  regions: Record<"common" | "added" | "removed", RegionInfo> | null;
+};
 export type NewDataset = Pick<Dataset, "name" | "period_label" | "period_kind" | "is_demo" | "spatial_reference" | "units">;
 
 export type Issue = { code: string; line?: number | null; column?: string | null; value?: string | null };
@@ -234,6 +242,8 @@ export const api = {
   },
   scene: (previous: string, current: string, key: string) =>
     request<SceneManifest>(`/api/v1/scene?previous=${previous}&current=${current}&key=${encodeURIComponent(key)}`),
+  sceneRegions: (previous: string, current: string, key: string) =>
+    request<SceneRegions>(`/api/v1/scene/regions?previous=${previous}&current=${current}&key=${encodeURIComponent(key)}`),
   matches: (previous: string, current: string) =>
     request<Matches>(`/api/v1/matches?previous=${previous}&current=${current}`),
 };

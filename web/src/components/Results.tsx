@@ -116,7 +116,7 @@ export function Results({ previousId, currentId, reviewer, onReviewerChange }: {
           {viewing && previousId && currentId && (
             <Viewer3D previousId={previousId} currentId={currentId} solidKey={viewing} onClose={() => setViewing(null)} />
           )}
-          <p className="note">{plural(visible.length, "sólido mostrado", "sólidos mostrados")} de {rows.length}. Las métricas de cambio llegarán en la siguiente etapa.</p>
+          <p className="note">{plural(visible.length, "sólido mostrado", "sólidos mostrados")} de {rows.length}.</p>
         </>
       )}
     </section>
