@@ -1,10 +1,12 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 
-import { api, type ComparisonReport, type ComparisonRow } from "../api";
+import { api, type ComparisonReport, type ComparisonRow, type Review } from "../api";
 import { POLL_MS } from "../config";
 import { describeRowFailure, describeRule, describeWarning, plural } from "../format";
+import { ReviewForm } from "./ReviewForm";
 
-type Props = { previousId: string; currentId: string; onView: (key: string) => void };
+type Props = { previousId: string; currentId: string; onView: (key: string) => void; reviewer: string; onReviewerChange: (name: string) => void };
+type Expanded = { kind: "why" | "review" | "general"; key: string } | null;
 type Filter = "all" | "SIN CAMBIOS" | "VARIABLE" | "NUEVO" | "ELIMINADO" | "unassigned" | "pending";
 
 const LABEL = { "SIN CAMBIOS": "Sin cambios", VARIABLE: "Variable", NUEVO: "Nuevo", ELIMINADO: "Eliminado" } as const;
@@ -20,12 +22,13 @@ function stateLabel(r: ComparisonRow): string {
   return r.status === "pending" ? "Pendiente" : "Sin clasificar";
 }
 
-export function ClassificationPanel({ previousId, currentId, onView }: Props) {
+export function ClassificationPanel({ previousId, currentId, onView, reviewer, onReviewerChange }: Props) {
   const [report, setReport] = useState<ComparisonReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<Expanded>(null);
+  const [reviews, setReviews] = useState<Record<string, Review>>({});
 
   const load = useCallback(async () => {
     try {
@@ -41,6 +44,20 @@ export function ClassificationPanel({ previousId, currentId, onView }: Props) {
     setOpen(null);
     void load();
   }, [load]);
+
+  const loadReviews = useCallback(async () => {
+    if (!reviewer.trim()) return setReviews({});
+    try {
+      const { reviews: list } = await api.listReviews(previousId, currentId, reviewer.trim());
+      setReviews(Object.fromEntries(list.map((r) => [r.key, r])));
+    } catch {
+      /* opinions are optional: the table keeps working without the badges */
+    }
+  }, [previousId, currentId, reviewer]);
+
+  useEffect(() => {
+    void loadReviews();
+  }, [loadReviews]);
 
   const running = report?.run?.state === "queued" || report?.run?.state === "running";
   useEffect(() => {
@@ -125,18 +142,24 @@ export function ClassificationPanel({ previousId, currentId, onView }: Props) {
                   <Fragment key={r.key}>
                     <tr>
                       <td>{r.key}</td>
-                      <td><span className={`pill pill-state-${r.state ?? (r.status === "pending" ? "pending" : "none")}`}>{stateLabel(r)}</span></td>
+                      <td>
+                        <span className={`pill pill-state-${r.state ?? (r.status === "pending" ? "pending" : "none")}`}>{stateLabel(r)}</span>
+                        {reviews[r.key] && <small className="badge badge-demo">{reviews[r.key].agrees ? "Tu opinión: de acuerdo" : "Tu opinión: con observaciones"}</small>}
+                      </td>
                       <td>{r.status === "failed" || r.status === "incident" ? describeRowFailure(r.description) : r.description}</td>
                       <td>{pct(r.metrics?.iou_pct)}</td><td>{pct(r.metrics?.delta_volume_pct, true)}</td>
                       <td>{meters(r.metrics?.p95_m)}</td><td>{meters(r.metrics?.centroid_m)}</td>
                       <td className="row-actions">
                         <button type="button" aria-label={`Ver en 3D: ${r.key}`} onClick={() => onView(r.key)}>Ver en 3D</button>
                         {r.checks.length > 0 && (
-                          <button type="button" aria-label={`Por qué: ${r.key}`} aria-expanded={open === r.key} onClick={() => setOpen(open === r.key ? null : r.key)}>Por qué</button>
+                          <button type="button" aria-label={`Por qué: ${r.key}`} aria-expanded={open?.kind === "why" && open.key === r.key}
+                            onClick={() => setOpen(open?.kind === "why" && open.key === r.key ? null : { kind: "why", key: r.key })}>Por qué</button>
                         )}
+                        <button type="button" aria-label={`Opinar: ${r.key}`} aria-expanded={open?.kind === "review" && open.key === r.key}
+                          onClick={() => setOpen(open?.kind === "review" && open.key === r.key ? null : { kind: "review", key: r.key })}>Opinar</button>
                       </td>
                     </tr>
-                    {open === r.key && (
+                    {open?.kind === "why" && open.key === r.key && (
                       <tr>
                         <td colSpan={8}>
                           <section aria-label={`Por qué: ${r.key}`} className="why">
@@ -158,12 +181,28 @@ export function ClassificationPanel({ previousId, currentId, onView }: Props) {
                         </td>
                       </tr>
                     )}
+                    {open?.kind === "review" && open.key === r.key && (
+                      <tr>
+                        <td colSpan={8}>
+                          <ReviewForm title={`Tu opinión sobre ${r.key}`} rowKey={r.key} systemLabel={stateLabel(r)} reviewer={reviewer}
+                            onReviewerChange={onReviewerChange} previousId={previousId} currentId={currentId} onSaved={loadReviews} />
+                        </td>
+                      </tr>
+                    )}
                   </Fragment>
                 ))}
               </tbody>
             </table>
           </div>
-          <p><a className="button" href={api.comparisonCsvUrl(previousId, currentId)} download>Descargar reporte de comparación (CSV)</a></p>
+          <p className="actions">
+            <a className="button" href={api.comparisonCsvUrl(previousId, currentId)} download>Descargar reporte de comparación (CSV)</a>
+            <button type="button" onClick={() => setOpen(open?.kind === "general" ? null : { kind: "general", key: "*" })}>Escribir una observación general</button>
+            <a className="button" href={api.reviewsCsvUrl(previousId, currentId)} download>Descargar mis opiniones (CSV)</a>
+          </p>
+          {open?.kind === "general" && (
+            <ReviewForm title="Observación general" rowKey="*" reviewer={reviewer} onReviewerChange={onReviewerChange}
+              previousId={previousId} currentId={currentId} onSaved={loadReviews} />
+          )}
         </>
       )}
 

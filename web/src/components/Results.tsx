@@ -9,7 +9,7 @@ type Kind = "both" | "previous" | "current";
 type Row = { kind: Kind; name: string; previous?: string; current?: string };
 const LABEL: Record<Kind, string> = { both: "En ambos", previous: "Solo en el anterior", current: "Solo en el actual" };
 
-export function Results({ previousId, currentId }: { previousId: string | null; currentId: string | null }) {
+export function Results({ previousId, currentId, reviewer, onReviewerChange }: { previousId: string | null; currentId: string | null; reviewer: string; onReviewerChange: (name: string) => void }) {
   const [matches, setMatches] = useState<Matches | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Kind | "all">("all");
@@ -81,7 +81,7 @@ export function Results({ previousId, currentId }: { previousId: string | null; 
             </p>
           ))}
 
-          {previousId && currentId && <ClassificationPanel previousId={previousId} currentId={currentId} onView={setViewing} />}
+          {previousId && currentId && <ClassificationPanel previousId={previousId} currentId={currentId} onView={setViewing} reviewer={reviewer} onReviewerChange={onReviewerChange} />}
 
           <div className="toolbar">
             <div className="tabs" role="group" aria-label="Filtrar por situación">

@@ -132,6 +132,28 @@ export type ComparisonReport = {
   summary: { "SIN CAMBIOS": number; VARIABLE: number; NUEVO: number; ELIMINADO: number; sin_clasificar: number; pendientes: number };
   rows: ComparisonRow[];
 };
+export type Review = {
+  key: string;
+  reviewer: string;
+  agrees: boolean;
+  comment: string;
+  expected_state: string | null;
+  expected_body_type: string | null;
+  expected_azimuth: number | null;
+  expected_dip: number | null;
+};
+export type ReviewInput = {
+  previous: string;
+  current: string;
+  key: string;
+  reviewer: string;
+  agrees: boolean;
+  expected_state: string | null;
+  expected_body_type: string | null;
+  expected_azimuth: number | null;
+  expected_dip: number | null;
+  comment: string;
+};
 export type NewDataset = Pick<Dataset, "name" | "period_label" | "period_kind" | "is_demo" | "spatial_reference" | "units">;
 
 export type Issue = { code: string; line?: number | null; column?: string | null; value?: string | null };
@@ -181,6 +203,11 @@ export const api = {
     request<QcRun>("/api/v1/comparisons", json("POST", { previous, current })),
   comparisonCsvUrl: (previous: string, current: string) =>
     `/api/v1/comparisons/report.csv?previous=${previous}&current=${current}`,
+  putReview: (input: ReviewInput) => request<{ saved: boolean }>("/api/v1/comparisons/reviews", json("PUT", input)),
+  listReviews: (previous: string, current: string, reviewer: string) =>
+    request<{ reviews: Review[] }>(`/api/v1/comparisons/reviews?previous=${previous}&current=${current}&reviewer=${encodeURIComponent(reviewer)}`),
+  reviewsCsvUrl: (previous: string, current: string) => `/api/v1/comparisons/reviews.csv?previous=${previous}&current=${current}`,
+  archiveDataset: (id: string) => request<Dataset>(`/api/v1/datasets/${id}/archive`, { method: "POST" }),
   qcCsvUrl: (id: string) => `/api/v1/datasets/${id}/qc.csv`,
   orientationTemplateUrl: "/api/v1/templates/orientation-reference",
   uploadOrientationReference: (id: string, file: File) => {

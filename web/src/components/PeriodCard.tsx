@@ -27,6 +27,7 @@ export function PeriodCard({ title, folderAria, modelName, saved, onReady, onCha
   const [failures, setFailures] = useState<Failure[]>([]);
   const [skipped, setSkipped] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingArchive, setConfirmingArchive] = useState(false);
 
   const load = useCallback(async (id: string) => {
     setDetail(await api.getDataset(id));
@@ -101,7 +102,19 @@ export function PeriodCard({ title, folderAria, modelName, saved, onReady, onCha
     }
   }
 
+  async function archive() {
+    if (!datasetId) return;
+    try {
+      await api.archiveDataset(datasetId);
+      reset();
+      await onChanged();
+    } catch (e) {
+      setError(friendlyError((e as Error).message));
+    }
+  }
+
   function reset() {
+    setConfirmingArchive(false);
     setDatasetId(null);
     setDetail(null);
     setLabel("");
@@ -222,6 +235,17 @@ export function PeriodCard({ title, folderAria, modelName, saved, onReady, onCha
       {datasetId && detail && !uploading && (
         <OrientationReference datasetId={datasetId} periodTitle={title} storedCount={detail.orientation_reference_count ?? 0}
           onSaved={() => load(datasetId)} />
+      )}
+
+      {datasetId && !uploading && !confirmingArchive && (
+        <button type="button" className="link change" onClick={() => setConfirmingArchive(true)}>Quitar este periodo de la lista</button>
+      )}
+      {datasetId && confirmingArchive && (
+        <div className="confirm-archive" role="group" aria-label="Confirmar quitar periodo">
+          <p className="note">El periodo dejará de aparecer en la lista. Los archivos se conservan en el servidor y se pueden recuperar.</p>
+          <button type="button" className="primary" onClick={archive}>Sí, quitar</button>{" "}
+          <button type="button" onClick={() => setConfirmingArchive(false)}>Cancelar</button>
+        </div>
       )}
 
       {datasetId && !uploading && (

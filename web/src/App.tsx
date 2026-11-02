@@ -9,6 +9,11 @@ export default function App() {
   const [previousId, setPreviousId] = useState<string | null>(null);
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [modelName, setModelName] = useState("Modelo");
+  const [reviewer, setReviewerState] = useState(() => localStorage.getItem("simusol.reviewer") ?? "");
+  const setReviewer = (name: string) => {
+    setReviewerState(name);
+    localStorage.setItem("simusol.reviewer", name);
+  };
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -54,6 +59,10 @@ export default function App() {
             <span>Nombre del modelo</span>
             <input value={modelName} onChange={(e) => setModelName(e.target.value)} />
           </label>
+          <label className="field">
+            <span>Tu nombre (para firmar tus opiniones)</span>
+            <input value={reviewer} onChange={(e) => setReviewer(e.target.value)} />
+          </label>
         </details>
       </header>
 
@@ -66,7 +75,7 @@ export default function App() {
           saved={available(previousId)} onReady={setCurrentId} onChanged={refresh} />
       </div>
 
-      <Results previousId={previousId} currentId={currentId} />
+      <Results previousId={previousId} currentId={currentId} reviewer={reviewer} onReviewerChange={setReviewer} />
     </main>
   );
 }

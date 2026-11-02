@@ -138,3 +138,11 @@ a.button { display: inline-block; padding: .55rem 1rem; border-radius: 8px; bord
 .why ul { margin: .3rem 0 .7rem; padding-left: 1.1rem; list-style: none; }
 .why li.ok { color: var(--ok); } .why li.bad { color: var(--err); font-weight: 600; } .why li.na { color: var(--muted); }
 .warnings li { color: var(--warn); }
+.review { background: #f7f8f9; border: 1px solid var(--line); border-radius: 8px; padding: .8rem 1rem; display: flex; flex-direction: column; gap: .6rem; max-width: 720px; }
+.review textarea { width: 100%; padding: .5rem; font: inherit; border: 1px solid #b9c0c5; border-radius: 6px; }
+.review .choice { border: none; padding: 0; margin: 0; display: flex; gap: 1.2rem; flex-wrap: wrap; align-items: center; }
+.review .choice legend { font-weight: 600; margin-bottom: .3rem; }
+.review-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .6rem; }
+.review-actions { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.confirm-archive { margin-top: .5rem; padding: .6rem .8rem; border: 1px solid #e0b060; background: var(--warn-bg); border-radius: 8px; }
