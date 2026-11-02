@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import threading
 import uuid
@@ -28,17 +29,20 @@ from solids.exports.qc_csv import qc_csv
 from solids.exports.review_csv import review_csv
 from solids.geometry import characterization as char_mod
 from solids.geometry import pair_metrics as pair_mod
+from solids.geometry import regions as regions_mod
 from solids.geometry.qc import QC_VERSION, failed_result as qc_failed_result
 from solids.infrastructure.catalog import Catalog, Conflict, Invalid, NotFound
 from solids.infrastructure.qc_runner import DEFAULT_TARGET, DEFAULT_TIMEOUT
 from solids.infrastructure.analysis_service import AnalysisService
 from solids.infrastructure.comparison_service import ComparisonService
+from solids.infrastructure.qc_runner import IsolatedAnalyzer
 from solids.infrastructure.obj_probe import ObjProbe
 
 CHUNK = 1024 * 1024
 DEFAULT_MAX_FILE_BYTES = 100 * 1024 * 1024
 MAX_REFERENCE_BYTES = 1024 * 1024
 ASSET_NAME = re.compile(r"^[0-9a-f]{64}_-?\d+_-?\d+_-?\d+\.glb$")
+REGION_ASSET = re.compile(r"^[0-9a-f]{64}-[0-9a-f]{64}_-?\d+_-?\d+_-?\d+_(common|added|removed)\.glb$")
 
 
 class ReviewIn(BaseModel):
@@ -98,7 +102,9 @@ def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_
                char_timeout: float = DEFAULT_TIMEOUT,
                compare_target: str = "solids.geometry.pair_metrics:compute_pair_metrics",
                compare_timeout: float = 300.0,
-               single_target: str = "solids.geometry.pair_metrics:compute_single") -> FastAPI:
+               single_target: str = "solids.geometry.pair_metrics:compute_single",
+               regions_target: str = "solids.geometry.regions:compute_regions",
+               regions_timeout: float = 120.0) -> FastAPI:
     data_dir = Path(data_dir)
     files_dir = data_dir / "originals"
     files_dir.mkdir(parents=True, exist_ok=True)
@@ -289,10 +295,63 @@ def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_
             "layers": layers,
         }
 
+    @router.get("/scene/regions")
+    def scene_regions(previous: str, current: str, key: str) -> dict:
+        """Common / added / removed zones of one solid (provisional). Computed on demand, cached by content."""
+        if previous == current:
+            raise HTTPException(422, "previous and current must be different revisions")
+        dataset_or_404(previous)
+        dataset_or_404(current)
+        found = {}
+        for role, dataset_id in (("previous", previous), ("current", current)):
+            rows = catalog.files_by_key(dataset_id, key)
+            if len(rows) > 1:
+                raise HTTPException(409, f"several files share the key '{key}'; resolve it before viewing")
+            if not rows:
+                raise HTTPException(404, "the solid is not in both periods")
+            found[role] = rows[0]
+
+        bounds = []
+        for role in ("previous", "current"):
+            try:
+                vertices, _ = load_obj(files_dir / found[role]["stored_name"])
+                bounds.append((vertices.min(axis=0), vertices.max(axis=0)))
+            except Exception:
+                pass
+        if len(bounds) < 2:
+            return {"status": "failed", "error": "a mesh could not be read", "regions": None, "provisional": True, "warnings": [], "origin": None}
+        origin = tuple(round(v, 3) for v in common_origin(bounds))
+        tag = "_".join(str(round(v * 1000)) for v in origin)
+        base = f"{found['previous']['sha256']}-{found['current']['sha256']}_{tag}"
+        sidecar = derived_dir / f"{base}.regions.json"
+
+        def with_urls(data: dict) -> dict:
+            for role, info in (data.get("regions") or {}).items():
+                if info.get("status") == "ok":
+                    info["url"] = f"/api/v1/scene/assets/{base}_{role}.glb"
+            return data
+
+        if sidecar.exists():
+            return with_urls(json.loads(sidecar.read_text()))
+        if not heavy_slot.acquire(blocking=False):
+            raise HTTPException(409, "a heavy calculation is running; try again in a moment")
+        try:
+            analyzer = IsolatedAnalyzer(regions_target, regions_timeout, regions_mod.failed_result)
+            try:
+                data = analyzer.analyze(files_dir / found["previous"]["stored_name"], files_dir / found["current"]["stored_name"],
+                                        derived_dir, Path(base))
+            finally:
+                analyzer.close()
+        finally:
+            heavy_slot.release()
+        if data.get("status") == "ok":
+            sidecar.write_text(json.dumps(data, allow_nan=False))
+        return with_urls(data)
+
     @router.get("/scene/assets/{name}")
     def scene_asset(name: str) -> FileResponse:
         path = derived_dir / name
-        if not ASSET_NAME.fullmatch(name) or not path.is_file():
+        if not (ASSET_NAME.fullmatch(name) or REGION_ASSET.fullmatch(name)) or not path.is_file():
             raise HTTPException(404, "asset not found")
         return FileResponse(path, media_type="model/gltf-binary")
 

@@ -70,3 +70,16 @@ def single(path):
     if "#crash" in head:
         os._exit(1)
     return compute_single(path)
+
+
+def regions(previous, current, out_dir, base):
+    from solids.geometry.regions import compute_regions
+
+    head = Path(previous).read_text(errors="ignore")[:200]
+    log = os.environ.get("QC_FAKE_LOG")
+    if log:
+        with open(log, "a") as handle:
+            handle.write("regions:" + Path(previous).name + "\n")
+    if "#crash" in head:
+        os._exit(1)
+    return compute_regions(previous, current, out_dir, base)
