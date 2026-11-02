@@ -5,6 +5,8 @@ from __future__ import annotations
 import csv
 import io
 
+from .safe import text_cell
+
 COLUMNS = (
     "Cuerpo", "Mesh_anterior", "Mesh_actual", "Periodo_anterior", "Periodo_actual",
     "Tipo_cuerpo_anterior", "Tipo_cuerpo_actual", "Tipo_orientacion_anterior", "Tipo_orientacion_actual",
@@ -36,8 +38,8 @@ def comparison_csv(previous_label: str, current_label: str, rows: list[dict]) ->
         if r.get("error"):
             notes.append(r["error"])
         writer.writerow([
-            r["key"], _b(r.get("previous_filename")), _b(r.get("current_filename")),
-            previous_label if r.get("previous_filename") else "", current_label if r.get("current_filename") else "",
+            text_cell(r["key"]), text_cell(_b(r.get("previous_filename"))), text_cell(_b(r.get("current_filename"))),
+            text_cell(previous_label) if r.get("previous_filename") else "", text_cell(current_label) if r.get("current_filename") else "",
             _b(cp.get("body_type")), _b(cc.get("body_type")), _b(op.get("type")), _b(oc.get("type")),
             _b(v.get("previous_m3")), _b(v.get("current_m3")), _b(op.get("azimuth")), _b(op.get("dip")),
             _b(oc.get("azimuth")), _b(oc.get("dip")), _b(cmp_.get("delta_azimuth_deg")), _b(cmp_.get("delta_dip_deg")),
@@ -45,7 +47,7 @@ def comparison_csv(previous_label: str, current_label: str, rows: list[dict]) ->
             _b(m.get("delta_volume_sym_pct")), _b(m.get("added_pct")), _b(m.get("removed_pct")),
             _b(v.get("added_m3")), _b(v.get("removed_m3")), _b(m.get("p95_m")), _b(m.get("centroid_m")),
             _b(m.get("local_change_deg") if r.get("local_applicable") else None),
-            _b(r.get("state")), _b(r.get("subtype")), r.get("description", ""), r.get("technical_status", ""),
-            "si" if r.get("provisional") else "", _b(r.get("profile")), "; ".join(n for n in notes if n),
+            _b(r.get("state")), _b(r.get("subtype")), text_cell(r.get("description", "")), r.get("technical_status", ""),
+            "si" if r.get("provisional") else "", _b(r.get("profile")), text_cell("; ".join(n for n in notes if n)),
         ])
     return ("﻿" + out.getvalue()).encode("utf-8")

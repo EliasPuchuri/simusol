@@ -129,3 +129,43 @@ def test_a_process_that_dies_gives_a_failed_answer_that_is_not_cached(env):
 def test_asset_names_stay_whitelisted(env, name):
     client, _, _ = env
     assert client.get(f"/api/v1/scene/assets/{name}").status_code == 404
+
+
+def sidecars(tmp_path):
+    return sorted((tmp_path / "data" / "derived").glob("*.regions.json"))
+
+
+def test_a_corrupt_cache_file_is_ignored_and_recomputed(env):
+    client, tmp_path, log = env
+    prev, curr = shifted_pair(client)
+    regions(client, prev, curr)
+    (sidecar,) = sidecars(tmp_path)
+    sidecar.write_text('{"truncated": ')  # a crash left half a file
+    before = len(log.read_text().split())
+    r = regions(client, prev, curr)
+    assert r.status_code == 200 and r.json()["regions"]["common"]["status"] == "ok"
+    assert len(log.read_text().split()) == before + 1      # recomputed, not a 500
+    import json
+    assert json.loads(sidecar.read_text())["regions"]["common"]["status"] == "ok"  # and healed
+
+
+def test_a_cache_file_from_another_algorithm_version_is_not_served(env):
+    client, tmp_path, log = env
+    prev, curr = shifted_pair(client)
+    regions(client, prev, curr)
+    (sidecar,) = sidecars(tmp_path)
+    import json
+    data = json.loads(sidecar.read_text())
+    assert data["regions_version"]
+    data["regions_version"] = "regions-0"
+    sidecar.write_text(json.dumps(data))
+    before = len(log.read_text().split())
+    regions(client, prev, curr)
+    assert len(log.read_text().split()) == before + 1
+    assert json.loads(sidecar.read_text())["regions_version"] != "regions-0"
+
+
+def test_the_cache_file_is_written_atomically(env):
+    client, tmp_path, _ = env
+    regions(client, *shifted_pair(client))
+    assert sidecars(tmp_path) and not list((tmp_path / "data" / "derived").glob("*.tmp"))

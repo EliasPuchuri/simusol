@@ -16,6 +16,7 @@ import numpy as np
 from solids.geometry.qc import _edge_counts
 from solids.geometry.scene import export_glb, load_obj
 
+REGIONS_VERSION = "regions-1"  # bump when the zone algorithm changes: cached zones of another version are recomputed
 ROLES = ("common", "added", "removed")
 EMPTY_FRACTION = 1e-6  # relative to the larger volume: below this a zone is considered empty
 
@@ -67,7 +68,7 @@ def compute_regions(previous: Path, current: Path, out_dir: Path, base: Path) ->
         meshes[role] = mesh
         if flipped:
             warnings.append(f"inverted_orientation_normalized:{role}")
-    result: dict[str, Any] = {"status": "ok", "error": None, "provisional": True, "warnings": warnings,
+    result: dict[str, Any] = {"status": "ok", "error": None, "provisional": True, "warnings": warnings, "regions_version": REGIONS_VERSION,
                               "origin": {"east": east, "north": north, "elevation": elevation}, "regions": {}}
     if block:
         result["regions"] = {role: {"status": "unavailable", "reason": block} for role in ROLES}

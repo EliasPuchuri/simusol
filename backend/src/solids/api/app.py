@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import threading
 import uuid
@@ -331,8 +332,14 @@ def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_
                     info["url"] = f"/api/v1/scene/assets/{base}_{role}.glb"
             return data
 
+        cached = None
         if sidecar.exists():
-            return with_urls(json.loads(sidecar.read_text()))
+            try:  # a crash can leave half a file: treat it as absent and recompute
+                cached = json.loads(sidecar.read_text())
+            except (ValueError, OSError):
+                cached = None
+        if cached and cached.get("regions_version") == regions_mod.REGIONS_VERSION:
+            return with_urls(cached)
         if not heavy_slot.acquire(blocking=False):
             raise HTTPException(409, "a heavy calculation is running; try again in a moment")
         try:
@@ -345,7 +352,9 @@ def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_
         finally:
             heavy_slot.release()
         if data.get("status") == "ok":
-            sidecar.write_text(json.dumps(data, allow_nan=False))
+            tmp = sidecar.with_suffix(".tmp")
+            tmp.write_text(json.dumps(data, allow_nan=False))
+            os.replace(tmp, sidecar)  # atomic: readers never see a partial file
         return with_urls(data)
 
     @router.get("/scene/assets/{name}")
