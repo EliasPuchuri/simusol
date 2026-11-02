@@ -12,6 +12,7 @@ dependencies = [
     "python-multipart==0.0.33",
     "scipy==1.17.1",
     "pymeshlab==2025.7.post1",
+    "rtree==1.4.1",
 ]
 
 [project.optional-dependencies]

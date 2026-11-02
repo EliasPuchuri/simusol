@@ -35,3 +35,18 @@ def characterize(path):
     if "#crash" in head:
         os._exit(1)
     return characterize_mesh(path)
+
+
+def compare(previous, current):
+    from solids.geometry.pair_metrics import compute_pair_metrics
+
+    head = Path(previous).read_text(errors="ignore")[:200]
+    log = os.environ.get("QC_FAKE_LOG")
+    if log:
+        with open(log, "a") as handle:
+            handle.write("pair:" + Path(previous).name + "\n")
+    if "#hang" in head:
+        time.sleep(120)
+    if "#crash" in head:
+        os._exit(1)
+    return compute_pair_metrics(previous, current)

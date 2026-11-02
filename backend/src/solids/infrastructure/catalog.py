@@ -56,6 +56,15 @@ CREATE TABLE IF NOT EXISTS characterization_runs (
     total INTEGER NOT NULL, done INTEGER NOT NULL DEFAULT 0, error TEXT,
     created_at TEXT NOT NULL, finished_at TEXT
 );
+CREATE TABLE IF NOT EXISTS pair_cache (
+    sha_previous TEXT NOT NULL, sha_current TEXT NOT NULL, version TEXT NOT NULL, status TEXT NOT NULL,
+    result_json TEXT NOT NULL, computed_at TEXT NOT NULL, PRIMARY KEY (sha_previous, sha_current, version)
+);
+CREATE TABLE IF NOT EXISTS comparison_runs (
+    id TEXT PRIMARY KEY, previous_id TEXT NOT NULL REFERENCES datasets(id), current_id TEXT NOT NULL REFERENCES datasets(id),
+    state TEXT NOT NULL, total INTEGER NOT NULL, done INTEGER NOT NULL DEFAULT 0, error TEXT,
+    created_at TEXT NOT NULL, finished_at TEXT
+);
 CREATE TABLE IF NOT EXISTS orientation_refs (
     dataset_id TEXT NOT NULL REFERENCES datasets(id), key TEXT NOT NULL, filename TEXT NOT NULL,
     orientation_type TEXT NOT NULL, azimuth REAL, dip REAL, method TEXT NOT NULL,
@@ -254,6 +263,10 @@ class Catalog:
                     f"UPDATE {runs} SET state = 'failed', error = 'interrupted by a restart', finished_at = ? "
                     "WHERE state IN ('queued','running')", (self._now(),)
                 )
+            conn.execute(
+                "UPDATE comparison_runs SET state = 'failed', error = 'interrupted by a restart', finished_at = ? "
+                "WHERE state IN ('queued','running')", (self._now(),)
+            )
 
     def get_cached(self, kind: str, sha256: str, version: str) -> dict | None:
         cache, column, _ = self._t(kind)
@@ -278,3 +291,56 @@ class Catalog:
 
     def latest_qc_run(self, dataset_id: str) -> dict | None:
         return self.latest_run("qc", dataset_id)
+
+    # pair comparison ----------------------------------------------------------------------
+    def get_pair(self, sha_previous: str, sha_current: str, version: str) -> dict | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT result_json FROM pair_cache WHERE sha_previous = ? AND sha_current = ? AND version = ?",
+                (sha_previous, sha_current, version),
+            ).fetchone()
+        return json.loads(row["result_json"]) if row else None
+
+    def put_pair(self, sha_previous: str, sha_current: str, version: str, result: dict) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO pair_cache VALUES (?,?,?,?,?,?)",
+                (sha_previous, sha_current, version, result.get("status", "failed"),
+                 json.dumps(result, allow_nan=False), self._now()),
+            )
+
+    def create_comparison_run(self, previous_id: str, current_id: str, total: int, state: str = "queued") -> dict:
+        run = {"id": uuid.uuid4().hex, "previous_id": previous_id, "current_id": current_id, "state": state,
+               "total": total, "done": 0, "error": None, "created_at": self._now(), "finished_at": None}
+        with self._conn() as conn:
+            conn.execute("INSERT INTO comparison_runs VALUES (:id,:previous_id,:current_id,:state,:total,:done,:error,:created_at,:finished_at)", run)
+        return run
+
+    def update_comparison_run(self, run_id: str, **fields) -> None:
+        assert set(fields) <= {"state", "done", "error", "finished_at"}
+        sets = ", ".join(f"{k} = :{k}" for k in fields)
+        with self._conn() as conn:
+            conn.execute(f"UPDATE comparison_runs SET {sets} WHERE id = :id", {**fields, "id": run_id})
+
+    def get_comparison_run(self, run_id: str) -> dict:
+        with self._conn() as conn:
+            row = conn.execute("SELECT * FROM comparison_runs WHERE id = ?", (run_id,)).fetchone()
+        if row is None:
+            raise NotFound(run_id)
+        return dict(row)
+
+    def active_comparison_run(self, previous_id: str, current_id: str) -> dict | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM comparison_runs WHERE previous_id = ? AND current_id = ? AND state IN ('queued','running') "
+                "ORDER BY created_at DESC LIMIT 1", (previous_id, current_id)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def latest_comparison_run(self, previous_id: str, current_id: str) -> dict | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM comparison_runs WHERE previous_id = ? AND current_id = ? "
+                "ORDER BY created_at DESC, rowid DESC LIMIT 1", (previous_id, current_id)
+            ).fetchone()
+        return dict(row) if row else None

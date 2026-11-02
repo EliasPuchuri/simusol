@@ -35,11 +35,11 @@ def _child(conn, target: str) -> None:  # runs in the spawned process
     module_name, func_name = target.split(":")
     analyze = getattr(importlib.import_module(module_name), func_name)
     while True:
-        path = conn.recv()
-        if path is None:
+        paths = conn.recv()
+        if paths is None:
             return
         try:
-            conn.send(("ok", to_jsonable(_plain(analyze(Path(path))))))
+            conn.send(("ok", to_jsonable(_plain(analyze(*[Path(p) for p in paths])))))
         except Exception as exc:  # the analyzer failed for this file only
             conn.send(("error", f"{exc.__class__.__name__}: {exc}"[:200]))
 
@@ -80,10 +80,10 @@ class IsolatedAnalyzer:
             self._conn.close()
         self._proc, self._conn = None, None
 
-    def analyze(self, path: Path) -> dict[str, Any]:
+    def analyze(self, *paths: Path) -> dict[str, Any]:
         self._ensure_child()
         try:
-            self._conn.send(str(path))
+            self._conn.send([str(p) for p in paths])
             if not self._conn.poll(self._timeout):
                 self._kill()
                 return _plain_failure(self._failure, f"timeout after {self._timeout:.0f} s")

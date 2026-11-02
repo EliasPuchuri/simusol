@@ -15,24 +15,34 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from solids.domain.inventory import Inventory, InventoryEntry
+from solids.domain.comparison_rules import PROFILE_ID
 from solids.domain.matching import match_inventories
+from solids.domain.pair_assembly import classify_result, orientation_input, rules_input
 from solids.geometry.scene import common_origin, export_glb, load_obj, to_scene_coordinates
 from solids.domain.naming import normalize_key
 from solids.domain.orientation_reference import Issue, parse_orientation_reference, template_csv
 from solids.domain.orientation_compare import compare_orientation
 from solids.exports.characterization_csv import characterization_csv
+from solids.exports.comparison_csv import comparison_csv
 from solids.exports.qc_csv import qc_csv
 from solids.geometry import characterization as char_mod
+from solids.geometry import pair_metrics as pair_mod
 from solids.geometry.qc import QC_VERSION, failed_result as qc_failed_result
 from solids.infrastructure.catalog import Catalog, Conflict, Invalid, NotFound
 from solids.infrastructure.qc_runner import DEFAULT_TARGET, DEFAULT_TIMEOUT
 from solids.infrastructure.analysis_service import AnalysisService
+from solids.infrastructure.comparison_service import ComparisonService
 from solids.infrastructure.obj_probe import ObjProbe
 
 CHUNK = 1024 * 1024
 DEFAULT_MAX_FILE_BYTES = 100 * 1024 * 1024
 MAX_REFERENCE_BYTES = 1024 * 1024
 ASSET_NAME = re.compile(r"^[0-9a-f]{64}_-?\d+_-?\d+_-?\d+\.glb$")
+
+
+class CompareRequest(BaseModel):
+    previous: str
+    current: str
 
 
 class DatasetCreate(BaseModel):
@@ -63,7 +73,9 @@ def _issues(issues: tuple[Issue, ...]) -> list[dict]:
 def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_target: str = DEFAULT_TARGET,
                qc_timeout: float = DEFAULT_TIMEOUT,
                char_target: str = "solids.geometry.characterization:characterize_mesh",
-               char_timeout: float = DEFAULT_TIMEOUT) -> FastAPI:
+               char_timeout: float = DEFAULT_TIMEOUT,
+               compare_target: str = "solids.geometry.pair_metrics:compute_pair_metrics",
+               compare_timeout: float = 300.0) -> FastAPI:
     data_dir = Path(data_dir)
     files_dir = data_dir / "originals"
     files_dir.mkdir(parents=True, exist_ok=True)
@@ -79,6 +91,8 @@ def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_
     characterization = AnalysisService(catalog, files_dir, kind="characterization", target=char_target,
                                        version=char_mod.CHAR_VERSION, timeout=char_timeout,
                                        failure=char_mod.failed_result, slot=heavy_slot)
+    comparison = ComparisonService(catalog, files_dir, target=compare_target, version=pair_mod.PAIR_VERSION,
+                                   timeout=compare_timeout, failure=pair_mod.failed_result, slot=heavy_slot)
     router = APIRouter(prefix="/api/v1")
 
     def dataset_or_404(dataset_id: str) -> dict:
@@ -331,6 +345,99 @@ def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_
             characterization_csv(dataset["period_label"], characterization_rows(dataset_id)),
             media_type="text/csv; charset=utf-8",
             headers={"Content-Disposition": 'attachment; filename="reporte_parte1.csv"'},
+        )
+
+    def closed_pair(previous: str, current: str) -> tuple[dict, dict]:
+        if previous == current:
+            raise HTTPException(422, "previous and current must be different revisions")
+        prev_ds, curr_ds = dataset_or_404(previous), dataset_or_404(current)
+        if prev_ds["state"] != "closed" or curr_ds["state"] != "closed":
+            raise HTTPException(409, "both revisions must be closed before comparing")
+        return prev_ds, curr_ds
+
+    def comparison_rows(previous: str, current: str) -> list[dict]:
+        result = match_inventories(catalog.inventory(previous), catalog.inventory(current))
+        rows: list[dict] = []
+        for pair in result.pairs:
+            ep, ec = catalog.files_by_key(previous, pair.key)[0], catalog.files_by_key(current, pair.key)[0]
+            cached = catalog.get_pair(ep["sha256"], ec["sha256"], pair_mod.PAIR_VERSION)
+            row = {"key": pair.key, "previous_filename": ep["filename"], "current_filename": ec["filename"],
+                   "provisional": True, "profile": PROFILE_ID, "events": [], "checks": [], "incidents": [],
+                   "warnings": [], "reasons": {}, "metrics": None, "volumes": None, "components": None,
+                   "characterization": None, "orientation_comparison": None, "local_applicable": False,
+                   "state": None, "subtype": None}
+            if cached is None:
+                rows.append({**row, "status": "pending", "technical_status": "pending",
+                             "description": "Pendiente: todavía no se calculó la comparación de este par."})
+                continue
+            verdict = classify_result(cached)
+            qc_warnings = []
+            for role, entry in (("previous", ep), ("current", ec)):
+                qc_result = catalog.get_qc_cached(entry["sha256"], QC_VERSION) or {}
+                if ((qc_result.get("self_intersections") or {}).get("value") or 0) > 0:
+                    qc_warnings.append(f"self_intersections:{role}")
+            chars = cached.get("characterization") or {}
+            rows.append({
+                **row, "status": cached["status"], "technical_status": cached["status"],
+                "state": verdict["state"], "subtype": verdict["subtype"], "description": verdict["description"],
+                "events": [e["code"] for e in verdict["events"]], "checks": verdict["checks"],
+                "incidents": verdict["incidents"], "warnings": list(cached.get("warnings", [])) + qc_warnings,
+                "reasons": cached.get("reasons", {}), "metrics": cached.get("metrics"), "volumes": cached.get("volumes"),
+                "components": cached.get("components"), "characterization": chars, "error": cached.get("error"),
+                "orientation_comparison": orientation_input(chars.get("previous"), chars.get("current")) if cached["status"] == "ok" else None,
+                "local_applicable": cached["status"] == "ok" and rules_input(cached)["local_change_deg"] is not None,
+            })
+        for entry in result.only_current:
+            rows.append({"key": entry.key, "previous_filename": None, "current_filename": entry.filename, "status": "n/a",
+                         "technical_status": "no_aplica", "state": "NUEVO", "subtype": None, "provisional": True,
+                         "profile": PROFILE_ID, "events": [], "checks": [], "incidents": [], "warnings": [], "reasons": {},
+                         "metrics": None, "volumes": None, "components": None, "characterization": None,
+                         "orientation_comparison": None, "local_applicable": False,
+                         "description": "El sólido no existía en el periodo anterior. Se determina por nombre normalizado: "
+                                        "si fue renombrado, puede ser un falso NUEVO y conviene revisarlo."})
+        for entry in result.only_previous:
+            rows.append({"key": entry.key, "previous_filename": entry.filename, "current_filename": None, "status": "n/a",
+                         "technical_status": "no_aplica", "state": "ELIMINADO", "subtype": None, "provisional": True,
+                         "profile": PROFILE_ID, "events": [], "checks": [], "incidents": [], "warnings": [], "reasons": {},
+                         "metrics": None, "volumes": None, "components": None, "characterization": None,
+                         "orientation_comparison": None, "local_applicable": False,
+                         "description": "El sólido existía en el periodo anterior pero no existe en el periodo actual. Se determina "
+                                        "por nombre normalizado: si fue renombrado, puede ser un falso ELIMINADO y conviene revisarlo."})
+        for incident in result.incidents:
+            rows.append({"key": incident.detail["key"], "previous_filename": None, "current_filename": None,
+                         "status": "incident", "technical_status": "incidencia", "state": None, "subtype": None,
+                         "provisional": True, "profile": PROFILE_ID, "events": [], "checks": [],
+                         "incidents": [{"code": incident.code, "filenames": incident.detail["filenames"], "period": incident.detail["period"]}],
+                         "warnings": [], "reasons": {}, "metrics": None, "volumes": None, "components": None,
+                         "characterization": None, "orientation_comparison": None, "local_applicable": False,
+                         "description": "No se pudo clasificar: varios archivos comparten el mismo nombre normalizado "
+                                        f"({', '.join(incident.detail['filenames'])}); no se elige ninguno."})
+        return sorted(rows, key=lambda r: r["key"])
+
+    @router.post("/comparisons", status_code=202)
+    def start_comparison(body: CompareRequest, response: Response) -> dict:
+        closed_pair(body.previous, body.current)
+        run, created = comparison.submit(body.previous, body.current)
+        response.status_code = 202 if created else 200
+        return run
+
+    @router.get("/comparisons")
+    def get_comparison(previous: str, current: str) -> dict:
+        closed_pair(previous, current)
+        rows = comparison_rows(previous, current)
+        summary = {s: sum(r["state"] == s for r in rows) for s in ("SIN CAMBIOS", "VARIABLE", "NUEVO", "ELIMINADO")}
+        summary["sin_clasificar"] = sum(r["state"] is None and r["status"] in ("failed", "incident") for r in rows)
+        summary["pendientes"] = sum(r["status"] == "pending" for r in rows)
+        return {"run": catalog.latest_comparison_run(previous, current), "provisional": True, "profile": PROFILE_ID,
+                "summary": summary, "rows": rows}
+
+    @router.get("/comparisons/report.csv")
+    def get_comparison_csv(previous: str, current: str) -> Response:
+        prev_ds, curr_ds = closed_pair(previous, current)
+        return Response(
+            comparison_csv(prev_ds["period_label"], curr_ds["period_label"], comparison_rows(previous, current)),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="reporte_parte2.csv"'},
         )
 
     @router.get("/matches")
