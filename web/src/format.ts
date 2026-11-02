@@ -123,3 +123,53 @@ export function describeQcError(error: string | null): string {
   if (error.includes("process ended")) return "Este archivo hizo fallar el programa de revisión.";
   return `No se pudo leer el archivo: ${error}`;
 }
+
+const deg = (v: number) => `${v.toLocaleString("es-PE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}°`;
+
+export function bodyTypeLabel(type: string | null | undefined): string {
+  if (type === "TABULAR") return "Tabular";
+  if (type === "TABULAR CURVO") return "Tabular curvo";
+  if (type === "GLOBULAR") return "Globular";
+  return "—";
+}
+
+type OrientationLike = { type: string; azimuth: number | null; dip: number | null; note: string | null; reason: string | null };
+
+export function describeOrientation(o: OrientationLike | null | undefined): string {
+  if (!o) return "—";
+  if (o.reason === "horizontal_plane" || o.note === "horizontal_plane") return "Plano horizontal: no tiene azimuth.";
+  if (o.type === "no_interpretable") {
+    if (o.reason === "similar_eigenvalues") return "No interpretable: los ejes del cuerpo son muy parecidos y no hay una dirección dominante.";
+    if (o.reason === "horizontal_plane") return "Plano horizontal: no tiene azimuth.";
+    if (o.reason === "analysis_failed") return "No se pudo calcular.";
+    return "No interpretable.";
+  }
+  if (o.azimuth == null || o.dip == null) return "No interpretable.";
+  if (o.type === "axial") return `Eje: Trend ${deg(o.azimuth)} · Plunge ${deg(o.dip)} (equivalente cada 180°)`;
+  const base = `Azimuth ${deg(o.azimuth)} · Dip ${deg(o.dip)}`;
+  return o.note === "vertical_plane_direction_ambiguous" ? `${base} (plano vertical: el sentido del buzamiento es ambiguo)` : base;
+}
+
+type ReferenceLike = {
+  method: string;
+  azimuth: number | null;
+  dip: number | null;
+  comparison:
+    | { comparable: true; delta_azimuth_deg: number | null; delta_dip_deg: number | null }
+    | { comparable: false; reason: string };
+};
+
+export function describeReference(ref: ReferenceLike | null | undefined): string {
+  if (!ref) return "—";
+  if (!ref.comparison.comparable) {
+    const why: Record<string, string> = {
+      different_orientation_type: "tipos de orientación distintos",
+      not_interpretable: "la orientación calculada no es interpretable",
+      not_characterized: "todavía no se calculó la orientación",
+    };
+    return `No comparable: ${why[ref.comparison.reason] ?? ref.comparison.reason}.`;
+  }
+  const { delta_azimuth_deg: da, delta_dip_deg: dd } = ref.comparison;
+  const refText = `${ref.method}: ${ref.azimuth == null ? "—" : deg(ref.azimuth)} / ${ref.dip == null ? "—" : deg(ref.dip)}`;
+  return `${refText} → diferencia ${da == null ? "—" : deg(da)} / ${dd == null ? "—" : deg(dd)}`;
+}

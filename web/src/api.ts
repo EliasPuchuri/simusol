@@ -66,6 +66,38 @@ export type QcReport = {
   summary: { ok: number; with_issues: number; failed: number; pending: number };
   results: QcResult[];
 };
+export type Orientation = {
+  type: "planar" | "axial" | "no_interpretable";
+  azimuth: number | null;
+  dip: number | null;
+  note: string | null;
+  reason: string | null;
+};
+export type ReferenceComparison =
+  | { comparable: true; delta_azimuth_deg: number | null; delta_dip_deg: number | null }
+  | { comparable: false; reason: string };
+export type ReferenceInfo = {
+  method: string;
+  azimuth: number | null;
+  dip: number | null;
+  comparison: ReferenceComparison;
+};
+export type CharResult = {
+  filename: string;
+  key: string;
+  size_bytes: number;
+  status: "ok" | "failed" | "pending";
+  error: string | null;
+  body_type?: string | null;
+  orientation?: Orientation | null;
+  eigenvalues?: number[] | null;
+  reference?: ReferenceInfo | null;
+};
+export type CharReport = {
+  run: QcRun | null;
+  summary: { ok: number; failed: number; pending: number };
+  results: CharResult[];
+};
 export type NewDataset = Pick<Dataset, "name" | "period_label" | "period_kind" | "is_demo" | "spatial_reference" | "units">;
 
 export type Issue = { code: string; line?: number | null; column?: string | null; value?: string | null };
@@ -106,6 +138,9 @@ export const api = {
   finalize: (id: string) => request<Dataset>(`/api/v1/datasets/${id}/finalize`, { method: "POST" }),
   getQc: (id: string) => request<QcReport>(`/api/v1/datasets/${id}/qc`),
   startQc: (id: string) => request<QcRun>(`/api/v1/datasets/${id}/qc`, { method: "POST" }),
+  getCharacterization: (id: string) => request<CharReport>(`/api/v1/datasets/${id}/characterization`),
+  startCharacterization: (id: string) => request<QcRun>(`/api/v1/datasets/${id}/characterization`, { method: "POST" }),
+  characterizationCsvUrl: (id: string) => `/api/v1/datasets/${id}/characterization.csv`,
   qcCsvUrl: (id: string) => `/api/v1/datasets/${id}/qc.csv`,
   orientationTemplateUrl: "/api/v1/templates/orientation-reference",
   uploadOrientationReference: (id: string, file: File) => {

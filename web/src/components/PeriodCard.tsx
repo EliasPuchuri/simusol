@@ -4,6 +4,7 @@ import { api, type Dataset, type DatasetDetail } from "../api";
 import { formatBytes, friendlyError, plural } from "../format";
 import { DropZone } from "./DropZone";
 import { OrientationReference } from "./OrientationReference";
+import { CharacterizationPanel } from "./CharacterizationPanel";
 import { QualityPanel } from "./QualityPanel";
 
 type Props = {
@@ -213,6 +214,10 @@ export function PeriodCard({ title, folderAria, modelName, saved, onReady, onCha
       )}
 
       {datasetId && detail && total > 0 && !uploading && <QualityPanel datasetId={datasetId} refreshKey={total} />}
+
+      {datasetId && detail && total > 0 && !uploading && (
+        <CharacterizationPanel datasetId={datasetId} refreshKey={total + (detail.orientation_reference_count ?? 0)} />
+      )}
 
       {datasetId && detail && !uploading && (
         <OrientationReference datasetId={datasetId} periodTitle={title} storedCount={detail.orientation_reference_count ?? 0}
