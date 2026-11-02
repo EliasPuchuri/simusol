@@ -1,0 +1,21 @@
+"""Analyzer used by tests to simulate files that hang or kill the process."""
+
+import os
+import time
+from pathlib import Path
+
+from solids.geometry.qc import analyze_mesh
+
+
+def analyze(path):
+    path = Path(path)
+    head = path.read_text(errors="ignore")[:200]
+    log = os.environ.get("QC_FAKE_LOG")
+    if log:
+        with open(log, "a") as handle:
+            handle.write(path.name + "\n")
+    if "#hang" in head:
+        time.sleep(120)
+    if "#crash" in head:
+        os._exit(1)
+    return analyze_mesh(path)

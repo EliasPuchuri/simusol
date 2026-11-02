@@ -1,0 +1,29 @@
+[project]
+name = "solids"
+version = "0.1.0"
+description = "Geometric QC, characterization and temporal comparison engine for geological solids"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "numpy==2.4.6",
+    "trimesh==5.2.0",
+    "manifold3d==3.5.4",
+    "fastapi==0.162.0",
+    "uvicorn==0.54.0",
+    "python-multipart==0.0.33",
+    "scipy==1.17.1",
+    "pymeshlab==2025.7.post1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==9.2.0", "httpx==0.28.1"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "tests"]
+testpaths = ["tests"]
