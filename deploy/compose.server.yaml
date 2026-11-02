@@ -1,0 +1,41 @@
+# Server stack: pulls the images published by CI; nothing is built on the server.
+# Values come from a `.env` file next to this one (see .env.example).
+name: simusol
+
+services:
+  api:
+    image: ghcr.io/${GHCR_OWNER}/simusol-api:${TAG:-latest}
+    restart: unless-stopped
+    environment:
+      SOLIDS_DATA_DIR: /data
+      SOLIDS_MAX_FILE_BYTES: "104857600"
+    volumes:
+      - simusol-data:/data
+    mem_limit: 1536m
+    cpus: 1.0
+    pids_limit: 256
+    networks: [internal]
+
+  web:
+    image: ghcr.io/${GHCR_OWNER}/simusol-web:${TAG:-latest}
+    container_name: simusol-web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    # Optional direct access: set BIND_ADDR (e.g. a private VPN address) and WEB_PORT in .env.
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${WEB_PORT:-8088}:80"
+    mem_limit: 64m
+    cpus: 0.25
+    networks: [internal, proxy]
+
+networks:
+  internal:
+  proxy:
+    # Network shared with the reverse proxy; create it once: docker network create simusol-proxy
+    external: true
+    name: simusol-proxy
+
+volumes:
+  simusol-data:

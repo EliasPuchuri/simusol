@@ -1,0 +1,29 @@
+# Local stack: API + web (nginx), memory-bounded.
+#   docker compose up --build        then open http://127.0.0.1:8088
+#   BIND_ADDR / WEB_PORT             interface and port to publish on
+services:
+  api:
+    build: { context: ./backend, target: runtime }
+    restart: unless-stopped
+    environment:
+      SOLIDS_DATA_DIR: /data
+      SOLIDS_MAX_FILE_BYTES: "104857600"
+    volumes:
+      - solids-data:/data
+    mem_limit: 1536m
+    cpus: 1.0
+    pids_limit: 256
+
+  web:
+    build: { context: ./web, target: runtime }
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${WEB_PORT:-8088}:80"
+    mem_limit: 64m
+    cpus: 0.25
+
+volumes:
+  solids-data:
