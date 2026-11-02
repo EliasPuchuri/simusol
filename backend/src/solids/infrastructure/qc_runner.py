@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib
 import multiprocessing as mp
+import os
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,10 @@ from solids.domain.metrics import Metric
 from typing import Callable
 
 from solids.geometry.qc import failed_result, to_jsonable
+
+# One thread per numerical library in the worker: predictable CPU use on a shared host with a CPU quota
+# (the plan asks for one library thread per process). Respects values already set by the operator.
+_SINGLE_THREAD_ENV = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")
 
 DEFAULT_TARGET = "solids.geometry.qc:analyze_mesh"
 DEFAULT_TIMEOUT = 180.0
@@ -67,7 +72,15 @@ class IsolatedAnalyzer:
             return
         parent, child = self._ctx.Pipe()
         self._proc = self._ctx.Process(target=_child, args=(child, self._target), daemon=True)
-        self._proc.start()
+        previous = {k: os.environ.get(k) for k in _SINGLE_THREAD_ENV}
+        for key in _SINGLE_THREAD_ENV:
+            os.environ.setdefault(key, "1")  # the child inherits the environment at start
+        try:
+            self._proc.start()
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
         child.close()
         self._conn = parent
 

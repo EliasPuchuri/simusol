@@ -50,3 +50,7 @@ def compare(previous, current):
     if "#crash" in head:
         os._exit(1)
     return compute_pair_metrics(previous, current)
+
+
+def threads(path):
+    return {"status": "ok", "threads": os.environ.get("OMP_NUM_THREADS")}

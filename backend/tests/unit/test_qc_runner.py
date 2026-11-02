@@ -58,3 +58,12 @@ def test_close_terminates_the_child(tmp_path):
     a.analyze(tmp_path / "a.obj")
     a.close()
     assert a.pid is None
+
+
+def test_the_worker_runs_numerical_libraries_with_one_thread(tmp_path):
+    (tmp_path / "a.obj").write_text(GOOD)
+    a = IsolatedAnalyzer("support.qc_fakes:threads", timeout=20.0)
+    try:
+        assert a.analyze(tmp_path / "a.obj")["threads"] == "1"
+    finally:
+        a.close()
