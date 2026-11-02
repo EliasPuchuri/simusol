@@ -56,6 +56,10 @@ CREATE TABLE IF NOT EXISTS characterization_runs (
     total INTEGER NOT NULL, done INTEGER NOT NULL DEFAULT 0, error TEXT,
     created_at TEXT NOT NULL, finished_at TEXT
 );
+CREATE TABLE IF NOT EXISTS single_cache (
+    sha256 TEXT NOT NULL, version TEXT NOT NULL, status TEXT NOT NULL,
+    result_json TEXT NOT NULL, computed_at TEXT NOT NULL, PRIMARY KEY (sha256, version)
+);
 CREATE TABLE IF NOT EXISTS pair_cache (
     sha_previous TEXT NOT NULL, sha_current TEXT NOT NULL, version TEXT NOT NULL, status TEXT NOT NULL,
     result_json TEXT NOT NULL, computed_at TEXT NOT NULL, PRIMARY KEY (sha_previous, sha_current, version)
@@ -229,9 +233,10 @@ class Catalog:
     _KINDS = {
         "qc": ("qc_cache", "qc_version", "qc_runs"),
         "characterization": ("characterization_cache", "version", "characterization_runs"),
+        "single": ("single_cache", "version", None),  # cache only: singles run inside a comparison run
     }
 
-    def _t(self, kind: str) -> tuple[str, str, str]:
+    def _t(self, kind: str) -> tuple[str, str, str | None]:
         return self._KINDS[kind]  # table names come from this whitelist only
 
     def create_run(self, kind: str, dataset_id: str, total: int, state: str = "queued") -> dict:
@@ -276,7 +281,7 @@ class Catalog:
 
     def interrupt_stale_runs(self) -> None:
         with self._conn() as conn:
-            for _, _, runs in self._KINDS.values():
+            for _, _, runs in (k for k in self._KINDS.values() if k[2]):
                 conn.execute(
                     f"UPDATE {runs} SET state = 'failed', error = 'interrupted by a restart', finished_at = ? "
                     "WHERE state IN ('queued','running')", (self._now(),)

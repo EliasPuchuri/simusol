@@ -182,3 +182,40 @@ def compute_pair_metrics(previous: Path, current: Path) -> dict[str, Any]:
         "characterization": {role: characterize_mesh(side["path"]) for role, side in sides.items()},
         "origin": {"east": origin[0], "north": origin[1], "elevation": origin[2]},
     }
+
+
+# --- one solid that exists in a single period (NUEVO / ELIMINADO) -------------------------------
+
+def _single_failed(error: str) -> dict[str, Any]:
+    return {"pair_version": PAIR_VERSION, "kind": "single", "status": "failed", "error": error, "provisional": True,
+            "volume_m3": None, "volume_reason": "single_failed", "warnings": [], "characterization": None}
+
+
+failed_single_result = _single_failed
+
+
+def compute_single(path: Path) -> dict[str, Any]:
+    """Provisional volume (orientation normalised on a copy) and Part 1 of one solid, for the totals."""
+    import trimesh
+
+    try:
+        vertices, faces = load_obj(Path(path))
+    except Exception as exc:
+        return _single_failed(str(exc)[:200] or exc.__class__.__name__)
+    shifted = vertices - vertices.mean(axis=0)
+    volume, reason, warnings = None, None, []
+    if not np.all(_edge_counts(faces) == 2):
+        reason = "not_watertight:solid"
+    elif not trimesh.Trimesh(vertices=shifted, faces=faces, process=False).is_winding_consistent:
+        reason = "inconsistent_winding:solid"
+    else:
+        signed = _signed_volume(shifted, faces)
+        if signed == 0:
+            reason = "zero_volume:solid"
+        else:
+            volume = abs(signed)
+            if signed < 0:
+                warnings.append("inverted_orientation_normalized:solid")
+    return {"pair_version": PAIR_VERSION, "kind": "single", "status": "ok", "error": None, "provisional": True,
+            "volume_m3": volume, "volume_reason": reason, "warnings": warnings,
+            "characterization": characterize_mesh(Path(path))}

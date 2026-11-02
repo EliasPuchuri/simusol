@@ -9,6 +9,7 @@ from solids.infrastructure.catalog import Catalog
 from support.meshes import cube, obj_bytes
 
 QC, CHAR, CMP = "support.qc_fakes:analyze", "support.qc_fakes:characterize", "support.qc_fakes:compare"
+SINGLE = "support.qc_fakes:single"
 DONE = {"completed", "completed_with_issues", "failed"}
 U = (367_800.0, 8_827_600.0, 3_300.0)
 
@@ -17,7 +18,7 @@ U = (367_800.0, 8_827_600.0, 3_300.0)
 def env(tmp_path, monkeypatch):
     log = tmp_path / "calls.log"
     monkeypatch.setenv("QC_FAKE_LOG", str(log))
-    app = create_app(tmp_path / "data", qc_target=QC, char_target=CHAR, compare_target=CMP, compare_timeout=20.0)
+    app = create_app(tmp_path / "data", qc_target=QC, char_target=CHAR, compare_target=CMP, compare_timeout=20.0, single_target=SINGLE)
     with TestClient(app) as client:
         yield client, tmp_path, log
 
@@ -109,11 +110,11 @@ def test_both_periods_must_exist_be_different_and_closed(env):
     assert client.get("/api/v1/comparisons/report.csv", params={"previous": closed, "current": still_open}).status_code == 409
 
 
-def test_the_run_also_fills_part_1_for_the_paired_solids(env):
+def test_the_run_also_fills_part_1_for_every_solid_of_the_comparison(env):
     client, _, _ = env
     prev, curr = standard(client)
     run(client, prev, curr)
-    assert client.get(f"/api/v1/datasets/{prev}/characterization").json()["summary"]["ok"] == 2  # a_3 and b_3, the paired ones
+    assert client.get(f"/api/v1/datasets/{prev}/characterization").json()["summary"]["ok"] == 3  # a_3 and b_3 (paired) and old_3 (only in this period)
 
 
 def test_csv_part2_follows_the_contract_and_leaves_failures_blank(env):
@@ -137,10 +138,10 @@ def test_csv_part2_follows_the_contract_and_leaves_failures_blank(env):
 def test_runs_left_running_are_interrupted_on_restart(tmp_path):
     (tmp_path / "data").mkdir()
     catalog = Catalog(tmp_path / "data" / "catalog.sqlite3")
-    with TestClient(create_app(tmp_path / "data", qc_target=QC, char_target=CHAR, compare_target=CMP)) as client:
+    with TestClient(create_app(tmp_path / "data", qc_target=QC, char_target=CHAR, compare_target=CMP, single_target=SINGLE)) as client:
         prev, curr = standard(client)
     catalog.create_comparison_run(prev, curr, total=2, state="running")
-    with TestClient(create_app(tmp_path / "data", qc_target=QC, char_target=CHAR, compare_target=CMP)) as client:
+    with TestClient(create_app(tmp_path / "data", qc_target=QC, char_target=CHAR, compare_target=CMP, single_target=SINGLE)) as client:
         body = client.get("/api/v1/comparisons", params={"previous": prev, "current": curr}).json()
     assert body["run"]["state"] == "failed" and body["run"]["error"] == "interrupted by a restart"
 
@@ -151,3 +152,62 @@ def test_the_originals_are_never_touched(env):
     before = {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in (tmp_path / "data" / "originals").glob("*.obj")}
     run(client, prev, curr)
     assert before and {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in before} == before
+
+
+def test_new_and_removed_solids_get_a_provisional_volume_and_part_1(env):
+    client, _, _ = env
+    body = run(client, *standard(client))
+    r = rows(body)
+    assert r["new_3"]["volumes"]["current_m3"] == pytest.approx(729.0) and r["new_3"]["volumes"]["previous_m3"] is None
+    assert r["old_3"]["volumes"]["previous_m3"] == pytest.approx(343.0)
+    assert r["new_3"]["characterization"]["current"]["status"] == "ok" and r["old_3"]["characterization"]["previous"]["status"] == "ok"
+    assert r["new_3"]["state"] == "NUEVO" and r["old_3"]["state"] == "ELIMINADO"  # states come from the inventory, not from metrics
+
+
+def test_total_volumes_sum_every_solid_of_each_period_and_say_what_they_are(env):
+    client, _, _ = env
+    body = run(client, *standard(client))
+    t = body["totals"]
+    assert t["available"] is True and t["provisional"] is True
+    assert t["previous"]["sum_m3"] == pytest.approx(1000 + 1000 + 343) and t["current"]["sum_m3"] == pytest.approx(1000 + 1000 + 729)
+    assert (t["previous"]["counted"], t["previous"]["total"]) == (3, 3)
+    assert t["difference_m3"] == pytest.approx(386.0) and t["difference_pct"] == pytest.approx(100 * 386 / 2343)
+    assert {"sum_of_bodies_not_union", "overlap_not_evaluated"} <= set(t["warnings"])
+
+
+def test_totals_are_not_available_before_the_comparison_is_calculated(env):
+    client, _, _ = env
+    prev, curr = standard(client)
+    body = client.get("/api/v1/comparisons", params={"previous": prev, "current": curr}).json()
+    assert body["totals"]["available"] is False
+
+
+def test_a_solid_without_a_valid_volume_is_excluded_from_the_totals_and_listed(env):
+    client, _, _ = env
+    open_mesh = cube(U)
+    open_mesh.faces = open_mesh.faces[:-2]
+    prev = period(client, "2025", {"x_3pt.obj": obj_bytes(open_mesh), "a_3pt.obj": obj_bytes(cube(U))})
+    curr = period(client, "2026", {"x_3.obj": obj_bytes(cube(U, 6)), "a_3.obj": obj_bytes(cube(U))})
+    t = run(client, prev, curr)["totals"]
+    assert t["previous"]["sum_m3"] == pytest.approx(1000.0) and (t["previous"]["counted"], t["previous"]["total"]) == (1, 2)
+    assert t["previous"]["excluded"] == [{"key": "x_3", "reason": "not_watertight:previous"}]
+    assert t["current"]["sum_m3"] == pytest.approx(1000 + 216) and "excluded_solids" in t["warnings"]
+
+
+def test_a_crashing_removed_solid_keeps_its_state_but_is_excluded_from_totals(env):
+    client, _, _ = env
+    prev = period(client, "2025", {"a_3pt.obj": obj_bytes(cube(U)), "gone_3pt.obj": obj_bytes(cube(U, 8), "#crash\n")})
+    curr = period(client, "2026", {"a_3.obj": obj_bytes(cube(U))})
+    body = run(client, prev, curr)
+    r = rows(body)
+    assert body["run"]["state"] == "completed_with_issues" and r["gone_3"]["state"] == "ELIMINADO" and r["gone_3"]["volumes"] is None
+    assert body["totals"]["previous"]["excluded"] == [{"key": "gone_3", "reason": "single_failed"}]
+
+
+def test_singles_are_reused_by_content_hash(env):
+    client, _, log = env
+    prev, curr = standard(client)
+    run(client, prev, curr)
+    done = len(log.read_text().split())
+    run(client, prev, curr)
+    assert len(log.read_text().split()) == done

@@ -97,7 +97,8 @@ def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_
                char_target: str = "solids.geometry.characterization:characterize_mesh",
                char_timeout: float = DEFAULT_TIMEOUT,
                compare_target: str = "solids.geometry.pair_metrics:compute_pair_metrics",
-               compare_timeout: float = 300.0) -> FastAPI:
+               compare_timeout: float = 300.0,
+               single_target: str = "solids.geometry.pair_metrics:compute_single") -> FastAPI:
     data_dir = Path(data_dir)
     files_dir = data_dir / "originals"
     files_dir.mkdir(parents=True, exist_ok=True)
@@ -114,7 +115,8 @@ def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_
                                        version=char_mod.CHAR_VERSION, timeout=char_timeout,
                                        failure=char_mod.failed_result, slot=heavy_slot)
     comparison = ComparisonService(catalog, files_dir, target=compare_target, version=pair_mod.PAIR_VERSION,
-                                   timeout=compare_timeout, failure=pair_mod.failed_result, slot=heavy_slot)
+                                   timeout=compare_timeout, failure=pair_mod.failed_result, slot=heavy_slot,
+                                   single_target=single_target, single_failure=pair_mod.failed_single_result)
     router = APIRouter(prefix="/api/v1")
 
     def dataset_or_404(dataset_id: str) -> dict:
@@ -421,19 +423,34 @@ def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_
                 "orientation_comparison": orientation_input(chars.get("previous"), chars.get("current")) if cached["status"] == "ok" else None,
                 "local_applicable": cached["status"] == "ok" and rules_input(cached)["local_change_deg"] is not None,
             })
+        def single_info(dataset_id: str, key: str, role: str) -> dict:
+            entry = catalog.files_by_key(dataset_id, key)[0]
+            cached = catalog.get_cached("single", entry["sha256"], pair_mod.PAIR_VERSION)
+            if cached is None or cached.get("status") != "ok":
+                return {"volumes": None, "characterization": None, "warnings": [],
+                        "reasons": {} if cached is None else {"volume": "single_failed"}}
+            reasons = {} if cached["volume_m3"] is not None else {"volume": (cached["volume_reason"] or "").replace(":solid", f":{role}")}
+            return {"volumes": {"previous_m3": None, "current_m3": None, f"{role}_m3": cached["volume_m3"]},
+                    "characterization": {role: cached["characterization"]},
+                    "warnings": [w.replace(":solid", f":{role}") for w in cached.get("warnings", [])], "reasons": reasons}
+
         for entry in result.only_current:
+            info = single_info(current, entry.key, "current")
             rows.append({"key": entry.key, "previous_filename": None, "current_filename": entry.filename, "status": "n/a",
                          "technical_status": "no_aplica", "state": "NUEVO", "subtype": None, "provisional": True,
-                         "profile": PROFILE_ID, "events": [], "checks": [], "incidents": [], "warnings": [], "reasons": {},
-                         "metrics": None, "volumes": None, "components": None, "characterization": None,
+                         "profile": PROFILE_ID, "events": [], "checks": [], "incidents": [], "warnings": info["warnings"],
+                         "reasons": info["reasons"], "metrics": None, "volumes": info["volumes"], "components": None,
+                         "characterization": info["characterization"],
                          "orientation_comparison": None, "local_applicable": False,
                          "description": "El sólido no existía en el periodo anterior. Se determina por nombre normalizado: "
                                         "si fue renombrado, puede ser un falso NUEVO y conviene revisarlo."})
         for entry in result.only_previous:
+            info = single_info(previous, entry.key, "previous")
             rows.append({"key": entry.key, "previous_filename": entry.filename, "current_filename": None, "status": "n/a",
                          "technical_status": "no_aplica", "state": "ELIMINADO", "subtype": None, "provisional": True,
-                         "profile": PROFILE_ID, "events": [], "checks": [], "incidents": [], "warnings": [], "reasons": {},
-                         "metrics": None, "volumes": None, "components": None, "characterization": None,
+                         "profile": PROFILE_ID, "events": [], "checks": [], "incidents": [], "warnings": info["warnings"],
+                         "reasons": info["reasons"], "metrics": None, "volumes": info["volumes"], "components": None,
+                         "characterization": info["characterization"],
                          "orientation_comparison": None, "local_applicable": False,
                          "description": "El sólido existía en el periodo anterior pero no existe en el periodo actual. Se determina "
                                         "por nombre normalizado: si fue renombrado, puede ser un falso ELIMINADO y conviene revisarlo."})
@@ -447,6 +464,45 @@ def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_
                          "description": "No se pudo clasificar: varios archivos comparten el mismo nombre normalizado "
                                         f"({', '.join(incident.detail['filenames'])}); no se elige ninguno."})
         return sorted(rows, key=lambda r: r["key"])
+
+    def comparison_totals(rows: list[dict]) -> dict:
+        """Sum of the provisional volumes of every solid of each period (a sum of bodies, not a union)."""
+        if any(r["status"] == "pending" for r in rows):
+            return {"available": False, "reason": "pending"}
+        out: dict = {"available": True, "provisional": True}
+        any_flip = False
+        for role in ("previous", "current"):
+            total = counted = 0
+            sum_m3, excluded = 0.0, []
+            for r in rows:
+                if r["status"] == "incident" or not r[f"{role}_filename"]:
+                    continue
+                total += 1
+                volume = (r["volumes"] or {}).get(f"{role}_m3")
+                if volume is None:
+                    reason = (r["reasons"] or {}).get("iou_pct") or (r["reasons"] or {}).get("volume") or "single_failed"
+                    if r["status"] == "failed":
+                        reason = "pair_failed"
+                    elif r["status"] == "ok" and not str(reason).endswith(f":{role}"):
+                        reason = f"not_watertight:{role}" if "watertight" in str(reason) else str(reason)
+                    excluded.append({"key": r["key"], "reason": reason})
+                else:
+                    counted += 1
+                    sum_m3 += volume
+            out[role] = {"sum_m3": sum_m3, "counted": counted, "total": total, "excluded": excluded}
+        any_flip = any(w.startswith("inverted_orientation_normalized") for r in rows for w in r["warnings"])
+        diff = out["current"]["sum_m3"] - out["previous"]["sum_m3"]
+        out["difference_m3"] = diff
+        out["difference_pct"] = 100 * diff / out["previous"]["sum_m3"] if out["previous"]["sum_m3"] else None
+        warnings = ["sum_of_bodies_not_union", "overlap_not_evaluated"]
+        if any_flip:
+            warnings.append("orientation_normalized")
+        if out["previous"]["excluded"] or out["current"]["excluded"]:
+            warnings.append("excluded_solids")
+        if any(r["status"] == "incident" for r in rows):
+            warnings.append("duplicate_keys_excluded")
+        out["warnings"] = warnings
+        return out
 
     @router.post("/comparisons", status_code=202)
     def start_comparison(body: CompareRequest, response: Response) -> dict:
@@ -463,7 +519,7 @@ def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_
         summary["sin_clasificar"] = sum(r["state"] is None and r["status"] in ("failed", "incident") for r in rows)
         summary["pendientes"] = sum(r["status"] == "pending" for r in rows)
         return {"run": catalog.latest_comparison_run(previous, current), "provisional": True, "profile": PROFILE_ID,
-                "summary": summary, "rows": rows}
+                "summary": summary, "totals": comparison_totals(rows), "rows": rows}
 
     @router.put("/comparisons/reviews")
     def put_review(body: ReviewIn) -> dict:
