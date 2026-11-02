@@ -95,7 +95,7 @@ describe("classification panel", () => {
     expect(await screen.findByText(/1 de 2 pares listos/)).toBeInTheDocument();
     const cards = await screen.findByRole("list", { name: "Resumen de estados" });
     for (const [label, n] of [["sin cambios", 1], ["variable", 1], ["nuevo", 1], ["eliminado", 1]] as const)
-      expect(within(cards).getByText(new RegExp(`^${n} ${label}$`, "i"))).toBeInTheDocument();
+      expect(within(cards).getByText(new RegExp(`^${n} ${label} \\(\\d+ %\\)$`, "i"))).toBeInTheDocument();
   });
 
   it("lists every solid with its state as text and a plain-language description", async () => {

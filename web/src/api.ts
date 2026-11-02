@@ -107,6 +107,19 @@ export type RuleCheck = {
   passed: boolean;
   applicable: boolean;
 };
+export type CharLite = { status: string; body_type: string | null; orientation: Orientation | null };
+export type VolumeTotals =
+  | { available: false; reason?: string }
+  | {
+      available: true;
+      provisional: boolean;
+      previous: PeriodTotal;
+      current: PeriodTotal;
+      difference_m3: number;
+      difference_pct: number | null;
+      warnings: string[];
+    };
+export type PeriodTotal = { sum_m3: number; counted: number; total: number; excluded: { key: string; reason: string }[] };
 export type ComparisonRow = {
   key: string;
   previous_filename: string | null;
@@ -121,6 +134,9 @@ export type ComparisonRow = {
   incidents: { code: string }[];
   warnings: string[];
   metrics: { iou_pct: number | null; delta_volume_pct: number | null; p95_m: number | null; centroid_m: number | null } | null;
+  volumes?: { previous_m3: number | null; current_m3: number | null } | null;
+  reasons?: Record<string, string>;
+  characterization?: { previous?: CharLite | null; current?: CharLite | null } | null;
   provisional: boolean;
   profile: string;
   error?: string | null;
@@ -130,6 +146,7 @@ export type ComparisonReport = {
   provisional: boolean;
   profile: string;
   summary: { "SIN CAMBIOS": number; VARIABLE: number; NUEVO: number; ELIMINADO: number; sin_clasificar: number; pendientes: number };
+  totals?: VolumeTotals;
   rows: ComparisonRow[];
 };
 export type Review = {
