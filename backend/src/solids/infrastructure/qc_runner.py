@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any
 
 from solids.domain.metrics import Metric
+from typing import Callable
+
 from solids.geometry.qc import failed_result, to_jsonable
 
 DEFAULT_TARGET = "solids.geometry.qc:analyze_mesh"
@@ -42,12 +44,14 @@ def _child(conn, target: str) -> None:  # runs in the spawned process
             conn.send(("error", f"{exc.__class__.__name__}: {exc}"[:200]))
 
 
-def _failed(error: str) -> dict[str, Any]:
-    return to_jsonable(_plain(failed_result(error)))  # plain JSON, like every result that crosses the pipe
+def _plain_failure(factory: Callable[[str], dict], error: str) -> dict[str, Any]:
+    return to_jsonable(_plain(factory(error)))  # plain JSON, like every result that crosses the pipe
 
 
 class IsolatedAnalyzer:
-    def __init__(self, target: str = DEFAULT_TARGET, timeout: float = DEFAULT_TIMEOUT) -> None:
+    def __init__(self, target: str = DEFAULT_TARGET, timeout: float = DEFAULT_TIMEOUT,
+                 failure: Callable[[str], dict] = failed_result) -> None:
+        self._failure = failure
         self._target = target
         self._timeout = timeout
         self._ctx = mp.get_context("spawn")
@@ -82,12 +86,12 @@ class IsolatedAnalyzer:
             self._conn.send(str(path))
             if not self._conn.poll(self._timeout):
                 self._kill()
-                return _failed(f"timeout after {self._timeout:.0f} s")
+                return _plain_failure(self._failure, f"timeout after {self._timeout:.0f} s")
             kind, payload = self._conn.recv()
         except (EOFError, BrokenPipeError, ConnectionResetError, OSError):
             self._kill()
-            return _failed("process ended unexpectedly while analyzing this file")
-        return payload if kind == "ok" else _failed(payload)
+            return _plain_failure(self._failure, "process ended unexpectedly while analyzing this file")
+        return payload if kind == "ok" else _plain_failure(self._failure, payload)
 
     def close(self) -> None:
         if self._conn is not None:

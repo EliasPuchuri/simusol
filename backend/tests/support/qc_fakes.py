@@ -19,3 +19,19 @@ def analyze(path):
     if "#crash" in head:
         os._exit(1)
     return analyze_mesh(path)
+
+
+def characterize(path):
+    from solids.geometry.characterization import characterize_mesh
+
+    path = Path(path)
+    head = path.read_text(errors="ignore")[:200]
+    log = os.environ.get("QC_FAKE_LOG")
+    if log:
+        with open(log, "a") as handle:
+            handle.write("char:" + path.name + "\n")
+    if "#hang" in head:
+        time.sleep(120)
+    if "#crash" in head:
+        os._exit(1)
+    return characterize_mesh(path)

@@ -19,11 +19,14 @@ from solids.domain.matching import match_inventories
 from solids.geometry.scene import common_origin, export_glb, load_obj, to_scene_coordinates
 from solids.domain.naming import normalize_key
 from solids.domain.orientation_reference import Issue, parse_orientation_reference, template_csv
+from solids.domain.orientation_compare import compare_orientation
+from solids.exports.characterization_csv import characterization_csv
 from solids.exports.qc_csv import qc_csv
-from solids.geometry.qc import QC_VERSION
+from solids.geometry import characterization as char_mod
+from solids.geometry.qc import QC_VERSION, failed_result as qc_failed_result
 from solids.infrastructure.catalog import Catalog, Conflict, Invalid, NotFound
 from solids.infrastructure.qc_runner import DEFAULT_TARGET, DEFAULT_TIMEOUT
-from solids.infrastructure.qc_service import QcService
+from solids.infrastructure.analysis_service import AnalysisService
 from solids.infrastructure.obj_probe import ObjProbe
 
 CHUNK = 1024 * 1024
@@ -58,7 +61,9 @@ def _issues(issues: tuple[Issue, ...]) -> list[dict]:
 
 
 def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_target: str = DEFAULT_TARGET,
-               qc_timeout: float = DEFAULT_TIMEOUT) -> FastAPI:
+               qc_timeout: float = DEFAULT_TIMEOUT,
+               char_target: str = "solids.geometry.characterization:characterize_mesh",
+               char_timeout: float = DEFAULT_TIMEOUT) -> FastAPI:
     data_dir = Path(data_dir)
     files_dir = data_dir / "originals"
     files_dir.mkdir(parents=True, exist_ok=True)
@@ -68,7 +73,12 @@ def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_
     scene_slot = threading.Semaphore(1)
     catalog = Catalog(data_dir / "catalog.sqlite3")
     catalog.interrupt_stale_runs()  # a run cannot survive a restart: report it instead of leaving it 'running'
-    qc = QcService(catalog, files_dir, qc_target, qc_timeout)
+    heavy_slot = threading.Lock()  # QC and characterization never run at the same time
+    qc = AnalysisService(catalog, files_dir, kind="qc", target=qc_target, version=QC_VERSION,
+                         timeout=qc_timeout, failure=qc_failed_result, slot=heavy_slot)
+    characterization = AnalysisService(catalog, files_dir, kind="characterization", target=char_target,
+                                       version=char_mod.CHAR_VERSION, timeout=char_timeout,
+                                       failure=char_mod.failed_result, slot=heavy_slot)
     router = APIRouter(prefix="/api/v1")
 
     def dataset_or_404(dataset_id: str) -> dict:
@@ -271,6 +281,56 @@ def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_
             qc_csv(dataset["period_label"], qc_rows(dataset_id)),
             media_type="text/csv; charset=utf-8",
             headers={"Content-Disposition": 'attachment; filename="reporte_parte0.csv"'},
+        )
+
+    def characterization_rows(dataset_id: str) -> list[dict]:
+        references = {r["key"]: r for r in catalog.orientation_reference(dataset_id)}
+        rows = []
+        for entry in catalog.files(dataset_id):
+            result = catalog.get_cached("characterization", entry["sha256"], char_mod.CHAR_VERSION)
+            qc_result = catalog.get_qc_cached(entry["sha256"], QC_VERSION)
+            volume = (qc_result or {}).get("volume_m3") or {"value": None, "reason": "qc_pendiente"}
+            ref = references.get(entry["key"])
+            reference = None
+            if ref:
+                reference = {k: ref[k] for k in ("filename", "orientation_type", "azimuth", "dip", "method", "observations")}
+                reference["comparison"] = (
+                    compare_orientation(result["orientation"], {"type": ref["orientation_type"], "azimuth": ref["azimuth"], "dip": ref["dip"]})
+                    if result and result.get("status") == "ok" else {"comparable": False, "reason": "not_characterized"}
+                )
+            rows.append({**{k: entry[k] for k in ("filename", "key", "sha256", "size_bytes")},
+                         "result": result, "volume": volume, "reference": reference})
+        return rows
+
+    @router.post("/datasets/{dataset_id}/characterization", status_code=202)
+    def start_characterization(dataset_id: str, response: Response) -> dict:
+        dataset_or_404(dataset_id)
+        if not catalog.files(dataset_id):
+            raise HTTPException(422, "the period has no files to characterize")
+        run, created = characterization.submit(dataset_id)
+        response.status_code = 202 if created else 200
+        return run
+
+    @router.get("/datasets/{dataset_id}/characterization")
+    def get_characterization(dataset_id: str) -> dict:
+        dataset_or_404(dataset_id)
+        results, summary = [], {"ok": 0, "failed": 0, "pending": 0}
+        for row in characterization_rows(dataset_id):
+            result = row["result"]
+            status = result["status"] if result else "pending"
+            summary[status] += 1
+            results.append({"filename": row["filename"], "key": row["key"], "size_bytes": row["size_bytes"],
+                            **(result or {"error": None}), "status": status,
+                            "volume_m3": row["volume"], "reference": row["reference"]})
+        return {"run": catalog.latest_run("characterization", dataset_id), "summary": summary, "results": results}
+
+    @router.get("/datasets/{dataset_id}/characterization.csv")
+    def get_characterization_csv(dataset_id: str) -> Response:
+        dataset = dataset_or_404(dataset_id)
+        return Response(
+            characterization_csv(dataset["period_label"], characterization_rows(dataset_id)),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="reporte_parte1.csv"'},
         )
 
     @router.get("/matches")

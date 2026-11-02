@@ -47,6 +47,15 @@ CREATE TABLE IF NOT EXISTS qc_runs (
     total INTEGER NOT NULL, done INTEGER NOT NULL DEFAULT 0, error TEXT,
     created_at TEXT NOT NULL, finished_at TEXT
 );
+CREATE TABLE IF NOT EXISTS characterization_cache (
+    sha256 TEXT NOT NULL, version TEXT NOT NULL, status TEXT NOT NULL,
+    result_json TEXT NOT NULL, computed_at TEXT NOT NULL, PRIMARY KEY (sha256, version)
+);
+CREATE TABLE IF NOT EXISTS characterization_runs (
+    id TEXT PRIMARY KEY, dataset_id TEXT NOT NULL REFERENCES datasets(id), state TEXT NOT NULL,
+    total INTEGER NOT NULL, done INTEGER NOT NULL DEFAULT 0, error TEXT,
+    created_at TEXT NOT NULL, finished_at TEXT
+);
 CREATE TABLE IF NOT EXISTS orientation_refs (
     dataset_id TEXT NOT NULL REFERENCES datasets(id), key TEXT NOT NULL, filename TEXT NOT NULL,
     orientation_type TEXT NOT NULL, azimuth REAL, dip REAL, method TEXT NOT NULL,
@@ -189,59 +198,83 @@ class Catalog:
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def create_qc_run(self, dataset_id: str, total: int, state: str = "queued") -> dict:
+    # analysis runs and caches (kind: "qc" or "characterization") -----------------------------
+    _KINDS = {
+        "qc": ("qc_cache", "qc_version", "qc_runs"),
+        "characterization": ("characterization_cache", "version", "characterization_runs"),
+    }
+
+    def _t(self, kind: str) -> tuple[str, str, str]:
+        return self._KINDS[kind]  # table names come from this whitelist only
+
+    def create_run(self, kind: str, dataset_id: str, total: int, state: str = "queued") -> dict:
+        _, _, runs = self._t(kind)
         run = {"id": uuid.uuid4().hex, "dataset_id": dataset_id, "state": state, "total": total,
                "done": 0, "error": None, "created_at": self._now(), "finished_at": None}
         with self._conn() as conn:
-            conn.execute("INSERT INTO qc_runs VALUES (:id,:dataset_id,:state,:total,:done,:error,:created_at,:finished_at)", run)
+            conn.execute(f"INSERT INTO {runs} VALUES (:id,:dataset_id,:state,:total,:done,:error,:created_at,:finished_at)", run)
         return run
 
-    def update_qc_run(self, run_id: str, **fields) -> None:
-        allowed = {"state", "done", "error", "finished_at"}
-        assert set(fields) <= allowed
+    def update_run(self, kind: str, run_id: str, **fields) -> None:
+        assert set(fields) <= {"state", "done", "error", "finished_at"}
+        _, _, runs = self._t(kind)
         sets = ", ".join(f"{k} = :{k}" for k in fields)
         with self._conn() as conn:
-            conn.execute(f"UPDATE qc_runs SET {sets} WHERE id = :id", {**fields, "id": run_id})
+            conn.execute(f"UPDATE {runs} SET {sets} WHERE id = :id", {**fields, "id": run_id})
 
-    def get_qc_run(self, run_id: str) -> dict:
+    def get_run(self, kind: str, run_id: str) -> dict:
+        _, _, runs = self._t(kind)
         with self._conn() as conn:
-            row = conn.execute("SELECT * FROM qc_runs WHERE id = ?", (run_id,)).fetchone()
+            row = conn.execute(f"SELECT * FROM {runs} WHERE id = ?", (run_id,)).fetchone()
         if row is None:
             raise NotFound(run_id)
         return dict(row)
 
-    def active_qc_run(self, dataset_id: str) -> dict | None:
+    def active_run(self, kind: str, dataset_id: str) -> dict | None:
+        _, _, runs = self._t(kind)
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT * FROM qc_runs WHERE dataset_id = ? AND state IN ('queued','running') "
+                f"SELECT * FROM {runs} WHERE dataset_id = ? AND state IN ('queued','running') "
                 "ORDER BY created_at DESC LIMIT 1", (dataset_id,)
             ).fetchone()
         return dict(row) if row else None
 
-    def latest_qc_run(self, dataset_id: str) -> dict | None:
+    def latest_run(self, kind: str, dataset_id: str) -> dict | None:
+        _, _, runs = self._t(kind)
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT * FROM qc_runs WHERE dataset_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1", (dataset_id,)
+                f"SELECT * FROM {runs} WHERE dataset_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1", (dataset_id,)
             ).fetchone()
         return dict(row) if row else None
 
     def interrupt_stale_runs(self) -> None:
         with self._conn() as conn:
-            conn.execute(
-                "UPDATE qc_runs SET state = 'failed', error = 'interrupted by a restart', finished_at = ? "
-                "WHERE state IN ('queued','running')", (self._now(),)
-            )
+            for _, _, runs in self._KINDS.values():
+                conn.execute(
+                    f"UPDATE {runs} SET state = 'failed', error = 'interrupted by a restart', finished_at = ? "
+                    "WHERE state IN ('queued','running')", (self._now(),)
+                )
 
-    def get_qc_cached(self, sha256: str, version: str) -> dict | None:
+    def get_cached(self, kind: str, sha256: str, version: str) -> dict | None:
+        cache, column, _ = self._t(kind)
         with self._conn() as conn:
-            row = conn.execute(
-                "SELECT result_json FROM qc_cache WHERE sha256 = ? AND qc_version = ?", (sha256, version)
-            ).fetchone()
+            row = conn.execute(f"SELECT result_json FROM {cache} WHERE sha256 = ? AND {column} = ?", (sha256, version)).fetchone()
         return json.loads(row["result_json"]) if row else None
 
-    def put_qc(self, sha256: str, version: str, result: dict) -> None:
+    def put_cached(self, kind: str, sha256: str, version: str, result: dict) -> None:
+        cache, _, _ = self._t(kind)
         with self._conn() as conn:
             conn.execute(
-                "INSERT OR REPLACE INTO qc_cache VALUES (?,?,?,?,?)",
+                f"INSERT OR REPLACE INTO {cache} VALUES (?,?,?,?,?)",
                 (sha256, version, result.get("status", "failed"), json.dumps(result, allow_nan=False), self._now()),
             )
+
+    # qc-named shortcuts kept for readability at call sites
+    def create_qc_run(self, dataset_id: str, total: int, state: str = "queued") -> dict:
+        return self.create_run("qc", dataset_id, total, state)
+
+    def get_qc_cached(self, sha256: str, version: str) -> dict | None:
+        return self.get_cached("qc", sha256, version)
+
+    def latest_qc_run(self, dataset_id: str) -> dict | None:
+        return self.latest_run("qc", dataset_id)
