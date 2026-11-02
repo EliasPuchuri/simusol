@@ -12,7 +12,7 @@ from typing import Literal
 
 from fastapi import APIRouter, FastAPI, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from solids.domain.inventory import Inventory, InventoryEntry
 from solids.domain.comparison_rules import PROFILE_ID
@@ -25,6 +25,7 @@ from solids.domain.orientation_compare import compare_orientation
 from solids.exports.characterization_csv import characterization_csv
 from solids.exports.comparison_csv import comparison_csv
 from solids.exports.qc_csv import qc_csv
+from solids.exports.review_csv import review_csv
 from solids.geometry import characterization as char_mod
 from solids.geometry import pair_metrics as pair_mod
 from solids.geometry.qc import QC_VERSION, failed_result as qc_failed_result
@@ -38,6 +39,27 @@ CHUNK = 1024 * 1024
 DEFAULT_MAX_FILE_BYTES = 100 * 1024 * 1024
 MAX_REFERENCE_BYTES = 1024 * 1024
 ASSET_NAME = re.compile(r"^[0-9a-f]{64}_-?\d+_-?\d+_-?\d+\.glb$")
+
+
+class ReviewIn(BaseModel):
+    previous: str
+    current: str
+    key: str = Field(min_length=1, max_length=200)
+    reviewer: str = Field(min_length=1, max_length=100)
+    agrees: bool
+    expected_state: Literal["SIN CAMBIOS", "VARIABLE", "NUEVO", "ELIMINADO"] | None = None
+    expected_body_type: Literal["TABULAR", "TABULAR CURVO", "GLOBULAR"] | None = None
+    expected_azimuth: float | None = Field(default=None, ge=0, le=360)
+    expected_dip: float | None = Field(default=None, ge=0, le=90)
+    comment: str = Field(default="", max_length=2000)
+
+    @model_validator(mode="after")
+    def disagreement_must_say_what_was_expected(self):
+        said = any(v not in (None, "") for v in (self.expected_state, self.expected_body_type, self.expected_azimuth,
+                                                 self.expected_dip, self.comment.strip()))
+        if not self.agrees and not said:
+            raise ValueError("explain what was expected: a state, a body type, an orientation or a comment")
+        return self
 
 
 class CompareRequest(BaseModel):
@@ -106,8 +128,18 @@ def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_
         return catalog.create_dataset(**body.model_dump())
 
     @router.get("/datasets")
-    def list_datasets() -> list[dict]:
-        return catalog.list_datasets()
+    def list_datasets(include_archived: bool = False) -> list[dict]:
+        return catalog.list_datasets(include_archived)
+
+    @router.post("/datasets/{dataset_id}/archive")
+    def archive_dataset(dataset_id: str) -> dict:
+        dataset_or_404(dataset_id)
+        return catalog.set_archived(dataset_id, True)
+
+    @router.post("/datasets/{dataset_id}/restore")
+    def restore_dataset(dataset_id: str) -> dict:
+        dataset_or_404(dataset_id)
+        return catalog.set_archived(dataset_id, False)
 
     @router.get("/datasets/{dataset_id}")
     def get_dataset(dataset_id: str) -> dict:
@@ -125,6 +157,8 @@ def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_
         dataset = dataset_or_404(dataset_id)
         if dataset["state"] != "open":
             raise HTTPException(409, "dataset is closed; create another revision to change it")
+        if dataset["archived"]:
+            raise HTTPException(409, "dataset is archived; restore it to add files")
         filename = _safe_filename(file.filename)
         if not filename.lower().endswith(".obj"):
             raise HTTPException(422, "only .obj files are accepted")
@@ -430,6 +464,38 @@ def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_
         summary["pendientes"] = sum(r["status"] == "pending" for r in rows)
         return {"run": catalog.latest_comparison_run(previous, current), "provisional": True, "profile": PROFILE_ID,
                 "summary": summary, "rows": rows}
+
+    @router.put("/comparisons/reviews")
+    def put_review(body: ReviewIn) -> dict:
+        closed_pair(body.previous, body.current)
+        system = {"system_state": None, "system_subtype": None, "system_description": None, "profile": PROFILE_ID}
+        if body.key != "*":
+            row = next((r for r in comparison_rows(body.previous, body.current) if r["key"] == body.key), None)
+            if row is None:
+                raise HTTPException(404, "the solid is not part of this comparison")
+            system = {"system_state": row["state"], "system_subtype": row["subtype"],
+                      "system_description": row["description"], "profile": row["profile"]}
+        catalog.upsert_review({
+            "previous_id": body.previous, "current_id": body.current, "key": body.key, "reviewer": body.reviewer.strip(),
+            "agrees": body.agrees, "expected_state": body.expected_state, "expected_body_type": body.expected_body_type,
+            "expected_azimuth": body.expected_azimuth, "expected_dip": body.expected_dip,
+            "comment": body.comment.strip(), **system,
+        })
+        return {"saved": True}
+
+    @router.get("/comparisons/reviews")
+    def list_reviews(previous: str, current: str, reviewer: str | None = None) -> dict:
+        closed_pair(previous, current)
+        return {"reviews": catalog.list_reviews(previous, current, reviewer)}
+
+    @router.get("/comparisons/reviews.csv")
+    def reviews_csv(previous: str, current: str) -> Response:
+        prev_ds, curr_ds = closed_pair(previous, current)
+        return Response(
+            review_csv(prev_ds["period_label"], curr_ds["period_label"], catalog.list_reviews(previous, current)),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="revisiones_area.csv"'},
+        )
 
     @router.get("/comparisons/report.csv")
     def get_comparison_csv(previous: str, current: str) -> Response:

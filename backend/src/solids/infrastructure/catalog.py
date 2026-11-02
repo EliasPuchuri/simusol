@@ -65,6 +65,12 @@ CREATE TABLE IF NOT EXISTS comparison_runs (
     state TEXT NOT NULL, total INTEGER NOT NULL, done INTEGER NOT NULL DEFAULT 0, error TEXT,
     created_at TEXT NOT NULL, finished_at TEXT
 );
+CREATE TABLE IF NOT EXISTS reviews (
+    previous_id TEXT NOT NULL, current_id TEXT NOT NULL, key TEXT NOT NULL, reviewer TEXT NOT NULL,
+    agrees INTEGER NOT NULL, expected_state TEXT, expected_body_type TEXT, expected_azimuth REAL, expected_dip REAL,
+    comment TEXT NOT NULL, system_state TEXT, system_subtype TEXT, system_description TEXT, profile TEXT,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (previous_id, current_id, key, reviewer)
+);
 CREATE TABLE IF NOT EXISTS orientation_refs (
     dataset_id TEXT NOT NULL REFERENCES datasets(id), key TEXT NOT NULL, filename TEXT NOT NULL,
     orientation_type TEXT NOT NULL, azimuth REAL, dip REAL, method TEXT NOT NULL,
@@ -78,6 +84,9 @@ class Catalog:
         self._db_path = db_path
         with self._conn() as conn:
             conn.executescript(_SCHEMA)
+            columns = {r["name"] for r in conn.execute("PRAGMA table_info(datasets)")}
+            if "archived" not in columns:  # additive migration: existing data is untouched
+                conn.execute("ALTER TABLE datasets ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
@@ -104,7 +113,8 @@ class Catalog:
                 "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             }
             conn.execute(
-                "INSERT INTO datasets VALUES (:id,:name,:period_label,:period_kind,:revision,"
+                "INSERT INTO datasets (id, name, period_label, period_kind, revision, is_demo, spatial_reference, units, state, created_at) "
+                "VALUES (:id,:name,:period_label,:period_kind,:revision,"
                 ":is_demo,:spatial_reference,:units,:state,:created_at)", record,
             )
         return self._dataset_dict(record)
@@ -113,6 +123,7 @@ class Catalog:
     def _dataset_dict(row) -> dict:
         data = dict(row)
         data["is_demo"] = bool(data["is_demo"])
+        data["archived"] = bool(data.get("archived", 0))
         return data
 
     def get_dataset(self, dataset_id: str) -> dict:
@@ -122,13 +133,20 @@ class Catalog:
             raise NotFound(dataset_id)
         return self._dataset_dict(row)
 
-    def list_datasets(self) -> list[dict]:
+    def list_datasets(self, include_archived: bool = False) -> list[dict]:
+        where = "" if include_archived else "WHERE d.archived = 0 "
         with self._conn() as conn:
             rows = conn.execute(
                 "SELECT d.*, (SELECT COUNT(*) FROM files f WHERE f.dataset_id = d.id) AS file_count "
-                "FROM datasets d ORDER BY d.created_at DESC, d.revision DESC"
+                f"FROM datasets d {where}ORDER BY d.created_at DESC, d.revision DESC"
             ).fetchall()
         return [self._dataset_dict(r) for r in rows]
+
+    def set_archived(self, dataset_id: str, archived: bool) -> dict:
+        self.get_dataset(dataset_id)
+        with self._conn() as conn:
+            conn.execute("UPDATE datasets SET archived = ? WHERE id = ?", (int(archived), dataset_id))
+        return self.get_dataset(dataset_id)
 
     def close_dataset(self, dataset_id: str) -> dict:
         dataset = self.get_dataset(dataset_id)
@@ -344,3 +362,32 @@ class Catalog:
                 "ORDER BY created_at DESC, rowid DESC LIMIT 1", (previous_id, current_id)
             ).fetchone()
         return dict(row) if row else None
+
+    # area reviews ---------------------------------------------------------------------------
+    def upsert_review(self, review: dict) -> None:
+        now = self._now()
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO reviews (previous_id, current_id, key, reviewer, agrees, expected_state, expected_body_type,
+                       expected_azimuth, expected_dip, comment, system_state, system_subtype, system_description, profile,
+                       created_at, updated_at)
+                   VALUES (:previous_id,:current_id,:key,:reviewer,:agrees,:expected_state,:expected_body_type,
+                       :expected_azimuth,:expected_dip,:comment,:system_state,:system_subtype,:system_description,:profile,:now,:now)
+                   ON CONFLICT(previous_id, current_id, key, reviewer) DO UPDATE SET
+                       agrees=excluded.agrees, expected_state=excluded.expected_state,
+                       expected_body_type=excluded.expected_body_type, expected_azimuth=excluded.expected_azimuth,
+                       expected_dip=excluded.expected_dip, comment=excluded.comment, system_state=excluded.system_state,
+                       system_subtype=excluded.system_subtype, system_description=excluded.system_description,
+                       profile=excluded.profile, updated_at=excluded.updated_at""",
+                {**review, "agrees": int(review["agrees"]), "now": now},
+            )
+
+    def list_reviews(self, previous_id: str, current_id: str, reviewer: str | None = None) -> list[dict]:
+        sql = "SELECT * FROM reviews WHERE previous_id = ? AND current_id = ?"
+        args: list = [previous_id, current_id]
+        if reviewer:
+            sql += " AND reviewer = ?"
+            args.append(reviewer)
+        with self._conn() as conn:
+            rows = conn.execute(sql + " ORDER BY key, reviewer", args).fetchall()
+        return [{**dict(r), "agrees": bool(r["agrees"])} for r in rows]
