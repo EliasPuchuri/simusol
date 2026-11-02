@@ -59,7 +59,7 @@ describe("type and orientation panel", () => {
   it("shows progress and then how many solids of each type there are", async () => {
     sequences["GET /api/v1/datasets/p/characterization"] = [
       pending,
-      { run: run("running", 1), summary: summary({ ok: 1, pending: 2 }), results: [] },
+      ...Array(12).fill({ run: run("running", 1), summary: summary({ ok: 1, pending: 2 }), results: [] }),
       { run: run("completed", 3), summary: summary({ ok: 3 }), results: [result("a.obj", "TABULAR", planar(193, 70.3)), result("b.obj", "TABULAR CURVO", planar(234.1, 73.2)), result("c.obj", "GLOBULAR", { type: "axial", azimuth: 60, dip: 20, note: null, reason: null })] },
     ];
     sequences["POST /api/v1/datasets/p/characterization"] = [run("queued", 0)];

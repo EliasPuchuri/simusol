@@ -173,3 +173,37 @@ export function describeReference(ref: ReferenceLike | null | undefined): string
   const refText = `${ref.method}: ${ref.azimuth == null ? "—" : deg(ref.azimuth)} / ${ref.dip == null ? "—" : deg(ref.dip)}`;
   return `${refText} → diferencia ${da == null ? "—" : deg(da)} / ${dd == null ? "—" : deg(dd)}`;
 }
+
+type RuleLike = { rule: string; observed: number | string | null; op: string; threshold: number | string | null; applicable: boolean; group?: string; passed?: boolean };
+const RULES: Record<string, [string, "pct" | "m" | "deg"]> = {
+  iou: ["Coincidencia (IoU)", "pct"], delta_volumen: ["Variación de volumen", "pct"], agregado: ["Volumen agregado", "pct"],
+  removido: ["Volumen removido", "pct"], p95: ["Distancia entre superficies (P95)", "m"], centroide: ["Desplazamiento del centro", "m"],
+  orientacion: ["Cambio de orientación", "deg"], delta_azimuth: ["Cambio de azimuth", "deg"], delta_dip: ["Cambio de dip", "deg"],
+  cambio_local: ["Cambio local de curvatura", "deg"],
+};
+const OPS: Record<string, string> = { ">=": "mínimo", "<=": "máximo", "<": "menor que", "==": "debe ser" };
+
+export function describeRule(c: RuleLike): string {
+  const [label, unit] = RULES[c.rule] ?? [c.rule, "pct"];
+  if (!c.applicable) return `${label}: no aplica a este par`;
+  const fmt = (v: number | string | null) => {
+    if (v == null) return "—";
+    if (typeof v === "string") return v;
+    return unit === "pct" ? `${v.toFixed(1)} %` : unit === "m" ? `${v.toFixed(2)} m` : `${v.toFixed(1)}°`;
+  };
+  return `${label}: ${fmt(c.observed)} (${OPS[c.op] ?? c.op} ${fmt(c.threshold)})`;
+}
+
+export function describeWarning(code: string): string {
+  const [kind, role] = code.split(":");
+  const who = role === "previous" ? "El periodo anterior" : role === "current" ? "El periodo actual" : null;
+  if (kind === "inverted_orientation_normalized" && who) return `${who} tiene la orientación invertida: su volumen se calculó con una copia corregida (provisional).`;
+  if (kind === "self_intersections" && who) return `${who} tiene caras que se cruzan: el volumen y la intersección pueden tener error.`;
+  return code;
+}
+
+export function describeRowFailure(description: string): string {
+  if (description.includes("timeout")) return "No se pudo clasificar: el cálculo de este par tardó demasiado y se canceló.";
+  if (description.includes("process ended")) return "No se pudo clasificar: uno de los archivos hizo fallar el programa de cálculo.";
+  return description;
+}

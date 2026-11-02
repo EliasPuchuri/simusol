@@ -62,7 +62,7 @@ describe("quality panel", () => {
   it("starts the review, shows progress and then a plain-language summary", async () => {
     sequences["GET /api/v1/datasets/p/qc"] = [
       pending,
-      { run: run("running", 1), summary: summary({ pending: 1, ok: 1 }), results: [clean("a.obj"), { ...entry("b.obj"), status: "pending", problems: [], error: null }] },
+      ...Array(12).fill({ run: run("running", 1), summary: summary({ pending: 1, ok: 1 }), results: [clean("a.obj"), { ...entry("b.obj"), status: "pending", problems: [], error: null }] }),
       { run: run("completed", 2), summary: summary({ ok: 1, with_issues: 1 }), results: [clean("a.obj"), inverted("b.obj")] },
     ];
     sequences["POST /api/v1/datasets/p/qc"] = [run("queued", 0)];
@@ -109,7 +109,7 @@ describe("quality panel", () => {
 
   it("keeps following a review that was already running when the page opened", async () => {
     sequences["GET /api/v1/datasets/p/qc"] = [
-      { run: run("running", 1), summary: summary({ ok: 1, pending: 1 }), results: [clean("a.obj"), { ...entry("b.obj"), status: "pending", problems: [], error: null }] },
+      ...Array(12).fill({ run: run("running", 1), summary: summary({ ok: 1, pending: 1 }), results: [clean("a.obj"), { ...entry("b.obj"), status: "pending", problems: [], error: null }] }),
       { run: run("completed", 2), summary: summary({ ok: 2 }), results: [clean("a.obj"), clean("b.obj")] },
     ];
     await openPeriod();

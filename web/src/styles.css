@@ -118,3 +118,23 @@ a.button { display: inline-block; padding: .55rem 1rem; border-radius: 8px; bord
 .pill-qc-pending { background: #eee; color: #444; border-color: #bbb; }
 .quality td ul { margin: 0; padding-left: 1.1rem; }
 .quality td p { margin: .2rem 0; }
+.classification { margin: 1rem 0; padding: 1rem; border: 1px solid var(--line); border-radius: 10px; background: #fcfcfc; }
+.classification h3 { margin: 0 0 .5rem; }
+.chips { display: flex; flex-wrap: wrap; gap: .5rem; list-style: none; padding: 0; margin: .5rem 0; }
+.chip { padding: .35rem .8rem; border-radius: 99px; font-weight: 700; border: 1px solid; }
+.chip-both { background: var(--ok-bg); color: var(--ok); border-color: #8fc59d; }
+.chip-var { background: var(--warn-bg); color: var(--warn); border-color: #e0b060; }
+.chip-new { background: #e8f1ff; color: #1d4d8f; border-color: #a9c6f0; }
+.chip-del { background: #f3e8ff; color: #5b2a8c; border-color: #cbb0ee; }
+.pill-state-SIN\ CAMBIOS { background: var(--ok-bg); color: var(--ok); border-color: #8fc59d; }
+.pill-state-VARIABLE { background: var(--warn-bg); color: var(--warn); border-color: #e0b060; }
+.pill-state-NUEVO { background: #e8f1ff; color: #1d4d8f; border-color: #a9c6f0; }
+.pill-state-ELIMINADO { background: #f3e8ff; color: #5b2a8c; border-color: #cbb0ee; }
+.pill-state-none { background: var(--err-bg); color: var(--err); border-color: #e0a0a0; }
+.pill-state-pending { background: #eee; color: #444; border-color: #bbb; }
+.row-actions { white-space: nowrap; display: flex; gap: .3rem; }
+.row-actions button { padding: .25rem .6rem; font-size: .85rem; }
+.why { background: #f7f8f9; padding: .6rem .9rem; border-radius: 8px; }
+.why ul { margin: .3rem 0 .7rem; padding-left: 1.1rem; list-style: none; }
+.why li.ok { color: var(--ok); } .why li.bad { color: var(--err); font-weight: 600; } .why li.na { color: var(--muted); }
+.warnings li { color: var(--warn); }

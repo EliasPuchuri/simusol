@@ -98,6 +98,40 @@ export type CharReport = {
   summary: { ok: number; failed: number; pending: number };
   results: CharResult[];
 };
+export type RuleCheck = {
+  rule: string;
+  group: string;
+  observed: number | string | null;
+  op: string;
+  threshold: number | string | null;
+  passed: boolean;
+  applicable: boolean;
+};
+export type ComparisonRow = {
+  key: string;
+  previous_filename: string | null;
+  current_filename: string | null;
+  status: "ok" | "failed" | "pending" | "n/a" | "incident";
+  technical_status: string;
+  state: "SIN CAMBIOS" | "VARIABLE" | "NUEVO" | "ELIMINADO" | null;
+  subtype: string | null;
+  description: string;
+  events: string[];
+  checks: RuleCheck[];
+  incidents: { code: string }[];
+  warnings: string[];
+  metrics: { iou_pct: number | null; delta_volume_pct: number | null; p95_m: number | null; centroid_m: number | null } | null;
+  provisional: boolean;
+  profile: string;
+  error?: string | null;
+};
+export type ComparisonReport = {
+  run: (QcRun & { previous_id?: string; current_id?: string }) | null;
+  provisional: boolean;
+  profile: string;
+  summary: { "SIN CAMBIOS": number; VARIABLE: number; NUEVO: number; ELIMINADO: number; sin_clasificar: number; pendientes: number };
+  rows: ComparisonRow[];
+};
 export type NewDataset = Pick<Dataset, "name" | "period_label" | "period_kind" | "is_demo" | "spatial_reference" | "units">;
 
 export type Issue = { code: string; line?: number | null; column?: string | null; value?: string | null };
@@ -141,6 +175,12 @@ export const api = {
   getCharacterization: (id: string) => request<CharReport>(`/api/v1/datasets/${id}/characterization`),
   startCharacterization: (id: string) => request<QcRun>(`/api/v1/datasets/${id}/characterization`, { method: "POST" }),
   characterizationCsvUrl: (id: string) => `/api/v1/datasets/${id}/characterization.csv`,
+  getComparison: (previous: string, current: string) =>
+    request<ComparisonReport>(`/api/v1/comparisons?previous=${previous}&current=${current}`),
+  startComparison: (previous: string, current: string) =>
+    request<QcRun>("/api/v1/comparisons", json("POST", { previous, current })),
+  comparisonCsvUrl: (previous: string, current: string) =>
+    `/api/v1/comparisons/report.csv?previous=${previous}&current=${current}`,
   qcCsvUrl: (id: string) => `/api/v1/datasets/${id}/qc.csv`,
   orientationTemplateUrl: "/api/v1/templates/orientation-reference",
   uploadOrientationReference: (id: string, file: File) => {

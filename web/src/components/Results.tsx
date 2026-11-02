@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { api, type Matches } from "../api";
 import { friendlyError, plural } from "../format";
+import { ClassificationPanel } from "./ClassificationPanel";
 import { Viewer3D } from "./Viewer3D";
 
 type Kind = "both" | "previous" | "current";
@@ -79,6 +80,8 @@ export function Results({ previousId, currentId }: { previousId: string | null; 
               {((i.detail.filenames as string[]) ?? []).join(" y ")} corresponderían al mismo sólido en el periodo {i.detail.period === "previous" ? "anterior" : "actual"}; no se compararon.
             </p>
           ))}
+
+          {previousId && currentId && <ClassificationPanel previousId={previousId} currentId={currentId} onView={setViewing} />}
 
           <div className="toolbar">
             <div className="tabs" role="group" aria-label="Filtrar por situación">
