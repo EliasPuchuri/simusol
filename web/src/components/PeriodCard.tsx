@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api, type Dataset, type DatasetDetail } from "../api";
+import { UPLOAD_CONCURRENCY } from "../config";
 import { formatBytes, friendlyError, plural } from "../format";
+import { runPool } from "../pool";
 import { DropZone } from "./DropZone";
 import { OrientationReference } from "./OrientationReference";
 import { CharacterizationPanel } from "./CharacterizationPanel";
@@ -56,16 +58,20 @@ export function PeriodCard({ title, folderAria, modelName, saved, onReady, onCha
         id = created.id;
         setDatasetId(id);
       }
-      const failed: Failure[] = [];
-      for (const [index, file] of objs.entries()) {
-        setProgress({ done: index, total: objs.length });
+      const failed: (Failure & { index: number })[] = [];
+      let finished = 0;
+      setProgress({ done: 0, total: objs.length });
+      await runPool(objs, UPLOAD_CONCURRENCY, async (file, index) => {
         try {
-          await api.uploadFile(id, file);
+          await api.uploadFile(id!, file);
         } catch (e) {
-          failed.push({ filename: file.name, message: friendlyError((e as Error).message) });
+          failed.push({ index, filename: file.name, message: friendlyError((e as Error).message) });
+        } finally {
+          setProgress({ done: ++finished, total: objs.length });
         }
-      }
-      setFailures(failed);
+      });
+      failed.sort((a, b) => a.index - b.index); // the list reads in the order the files were picked
+      setFailures(failed.map(({ filename, message }) => ({ filename, message })));
       await load(id);
       await onChanged();
     } catch (e) {
@@ -172,7 +178,7 @@ export function PeriodCard({ title, folderAria, modelName, saved, onReady, onCha
       {uploading && (
         <div role="status" aria-live="polite" className="progress">
           <progress max={progress.total} value={progress.done} />
-          <span>Subiendo {Math.min(progress.done + 1, progress.total)} de {progress.total}…</span>
+          <span>Subiendo: {progress.done} de {progress.total}…</span>
         </div>
       )}
 
