@@ -247,3 +247,13 @@ main { max-width: 1480px; }
 }
 @media (max-width: 640px) { .board .periods { grid-template-columns: 1fr; } }
 .dash { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+/* Breathing room: wider bars that fill the card, more space between cards */
+.board { gap: 1.5rem; }
+.board-counts > .dash-card { display: flex; flex-direction: column; }
+.board-counts .columns { flex: 1; height: auto; min-height: 220px; gap: 1rem; margin-top: .5rem; }
+.board-counts .pair { height: 100%; flex: 1; gap: 6px; }
+.board-counts .col { width: 2.4rem; }
+.board-counts .columns > li { justify-content: flex-end; }
+.cards { gap: .75rem; }
+.dash-card { padding: 1.1rem 1.25rem; }
