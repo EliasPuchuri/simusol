@@ -57,6 +57,17 @@ beforeEach(() => {
           pairs: [{ key: "a_3", previous: entry("a_3pt.obj", "a_3"), current: entry("a_3.obj", "a_3") }],
           only_previous: [entry("old.obj", "old")], only_current: [entry("new.obj", "new")], incidents: [],
         });
+      if (url === "/api/v1/comparisons?previous=p&current=c") {
+        const row = (key: string, previous: string | null, current: string | null) => ({
+          key, previous_filename: previous, current_filename: current, status: "pending", technical_status: "pending", state: null, subtype: null,
+          description: "Pendiente", events: [], checks: [], incidents: [], warnings: [], metrics: null, volumes: null,
+        });
+        return json({
+          run: null, provisional: true, profile: "p", summary: { "SIN CAMBIOS": 0, VARIABLE: 0, NUEVO: 0, ELIMINADO: 0, sin_clasificar: 0, pendientes: 3 },
+          rows: [row("a_3", "a_3pt.obj", "a_3.obj"), row("new", null, "new.obj"), row("old", "old.obj", null)],
+        });
+      }
+      if (/\/(qc|characterization)$/.test(url)) return json({ run: null, summary: { ok: 0, failed: 0, pending: 0, with_issues: 0 }, results: [] });
       if (url.startsWith("/api/v1/scene/regions?")) {
         regionsRequested.push(url);
         const reply = regionsReply ?? { body: {} };
@@ -156,7 +167,7 @@ describe("3D viewer", () => {
     await view(user, "old");
     await waitFor(() => expect(mocks.instances[0].dispose).toHaveBeenCalled());
     await screen.findByRole("heading", { name: /Vista 3D · old/ });
-    await user.click(screen.getByRole("button", { name: "Cerrar vista 3D" }));
+    await user.selectOptions(screen.getByLabelText("Filtrar sólido"), "");
     await waitFor(() => expect(mocks.instances.at(-1).dispose).toHaveBeenCalled());
     expect(screen.queryByRole("heading", { name: /Vista 3D/ })).not.toBeInTheDocument();
   });

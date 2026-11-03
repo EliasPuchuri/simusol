@@ -6,7 +6,7 @@ import { plural } from "../format";
 import { DEFAULT_OPACITY } from "../viewer/defaults";
 import { ThreeScene, WebGLUnavailableError, type Role } from "../viewer/ThreeScene";
 
-type Props = { previousId: string; currentId: string; solidKey: string; onClose: () => void };
+type Props = { previousId: string; currentId: string; solidKey: string; };
 type LayerUi = { layer: SceneLayer; visible: boolean; opacity: number };
 
 const NAMES: Record<"previous" | "current", { text: string; color: string; short: string }> = {
@@ -22,7 +22,7 @@ const ZONES: Record<Zone, { text: string; color: string; none: string }> = {
 type RegionsState = { phase: "idle" | "loading" | "ready" | "error"; data: SceneRegions | null; message: string | null; visible: Record<Zone, boolean> };
 const IDLE: RegionsState = { phase: "idle", data: null, message: null, visible: { common: true, added: true, removed: true } };
 
-export function Viewer3D({ previousId, currentId, solidKey, onClose }: Props) {
+export function Viewer3D({ previousId, currentId, solidKey }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const scene = useRef<ThreeScene | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -133,8 +133,7 @@ export function Viewer3D({ previousId, currentId, solidKey, onClose }: Props) {
   return (
     <section className="card viewer" aria-labelledby="viewer-title">
       <div className="viewer-head">
-        <h2 id="viewer-title">Vista 3D · {solidKey}</h2>
-        <button type="button" onClick={onClose}>Cerrar vista 3D</button>
+        <h3 id="viewer-title">Vista 3D · {solidKey}</h3>
       </div>
 
       {message && <p role="alert" className="alert alert-error">{message}</p>}

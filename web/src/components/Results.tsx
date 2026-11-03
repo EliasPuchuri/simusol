@@ -1,20 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { api, type Matches } from "../api";
-import { friendlyError, plural } from "../format";
+import { friendlyError } from "../format";
 import { ClassificationPanel } from "./ClassificationPanel";
 import { Viewer3D } from "./Viewer3D";
 
-type Kind = "both" | "previous" | "current";
-type Row = { kind: Kind; name: string; previous?: string; current?: string };
-const LABEL: Record<Kind, string> = { both: "En ambos", previous: "Solo en el anterior", current: "Solo en el actual" };
+type Props = {
+  previousId: string | null; currentId: string | null; previousLabel: string; currentLabel: string;
+  reviewer: string; onReviewerChange: (name: string) => void;
+};
 
-export function Results({ previousId, currentId, reviewer, onReviewerChange }: { previousId: string | null; currentId: string | null; reviewer: string; onReviewerChange: (name: string) => void }) {
+export function Results({ previousId, currentId, previousLabel, currentLabel, reviewer, onReviewerChange }: Props) {
   const [matches, setMatches] = useState<Matches | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<Kind | "all">("all");
-  const [query, setQuery] = useState("");
   const [viewing, setViewing] = useState<string | null>(null);
+  const viewerAnchor = useRef<HTMLElement>(null);
 
   useEffect(() => {
     setMatches(null);
@@ -30,22 +30,15 @@ export function Results({ previousId, currentId, reviewer, onReviewerChange }: {
     };
   }, [previousId, currentId]);
 
-  const rows = useMemo<Row[]>(() => {
+  const keys = useMemo(() => {
     if (!matches) return [];
-    return [
-      ...matches.pairs.map((p): Row => ({ kind: "both", name: p.key, previous: p.previous.filename, current: p.current.filename })),
-      ...matches.only_previous.map((e): Row => ({ kind: "previous", name: e.key, previous: e.filename })),
-      ...matches.only_current.map((e): Row => ({ kind: "current", name: e.key, current: e.filename })),
-    ].sort((a, b) => a.name.localeCompare(b.name));
+    return [...matches.pairs, ...matches.only_previous, ...matches.only_current].map((e) => ("key" in e ? e.key : "")).sort((a, b) => a.localeCompare(b));
   }, [matches]);
 
-  const counts = { both: 0, previous: 0, current: 0 };
-  rows.forEach((r) => counts[r.kind]++);
-  const q = query.trim().toLowerCase();
-  const visible = rows.filter(
-    (r) => (filter === "all" || r.kind === filter) &&
-      (!q || [r.name, r.previous, r.current].some((v) => v?.toLowerCase().includes(q))),
-  );
+  function open(key: string | null) {
+    setViewing(key);
+    if (key) viewerAnchor.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  }
 
   return (
     <section className="card results" aria-labelledby="results-t">
@@ -58,22 +51,8 @@ export function Results({ previousId, currentId, reviewer, onReviewerChange }: {
         <p role="status">Comparando…</p>
       ) : (
         <>
-          <ul className="stats">
-            <li className="stat stat-both">
-              <strong>{counts.both}</strong>{" "}
-              <span>{counts.both === 1 ? "sólido está en ambos periodos" : "sólidos están en ambos periodos"}</span>
-            </li>
-            <li className="stat stat-previous">
-              <strong>{counts.previous}</strong>{" "}
-              <span>{counts.previous === 1 ? "sólido solo está en el periodo anterior" : "sólidos solo están en el periodo anterior"}</span>
-            </li>
-            <li className="stat stat-current">
-              <strong>{counts.current}</strong>{" "}
-              <span>{counts.current === 1 ? "sólido solo está en el periodo actual" : "sólidos solo están en el periodo actual"}</span>
-            </li>
-          </ul>
           <p className="note">
-            Los sólidos se emparejan por nombre (se ignora «pt» al final). Si un sólido fue renombrado, aparecerá a la vez como «solo en el anterior» y «solo en el actual»: conviene revisarlo manualmente.
+            Los sólidos se emparejan por nombre (se ignora «pt» al final). Si un sólido fue renombrado, aparecerá a la vez como «eliminado» y «nuevo»: conviene revisarlo manualmente.
           </p>
           {matches.incidents.map((i, n) => (
             <p key={n} role="alert" className="alert alert-warn">
@@ -81,42 +60,21 @@ export function Results({ previousId, currentId, reviewer, onReviewerChange }: {
             </p>
           ))}
 
-          {previousId && currentId && <ClassificationPanel previousId={previousId} currentId={currentId} onView={setViewing} reviewer={reviewer} onReviewerChange={onReviewerChange} />}
+          <ClassificationPanel previousId={previousId} currentId={currentId} previousLabel={previousLabel} currentLabel={currentLabel}
+            onView={open} viewing={viewing} reviewer={reviewer} onReviewerChange={onReviewerChange} />
 
-          <div className="toolbar">
-            <div className="tabs" role="group" aria-label="Filtrar por situación">
-              {([["all", `Todos (${rows.length})`], ["both", `En ambos (${counts.both})`],
-                ["previous", `Solo en el anterior (${counts.previous})`], ["current", `Solo en el actual (${counts.current})`]] as const).map(([k, text]) => (
-                <button key={k} type="button" aria-pressed={filter === k} onClick={() => setFilter(k)}>{text}</button>
-              ))}
-            </div>
-            <label className="search">
-              <span className="sr-only">Buscar sólido</span>
-              <input type="search" aria-label="Buscar sólido" placeholder="Buscar sólido…" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <section ref={viewerAnchor} className="viewer-panel" aria-label="Visor 3D">
+            <label className="field viewer-filter">
+              <span>Filtrar sólido</span>
+              <select value={viewing ?? ""} onChange={(e) => open(e.target.value || null)}>
+                <option value="">Elige el sólido que vas a revisar…</option>
+                {keys.map((k) => <option key={k} value={k}>{k}</option>)}
+              </select>
             </label>
-          </div>
-
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Sólido</th><th>Periodo anterior</th><th>Periodo actual</th><th>Situación</th><th>Vista 3D</th></tr></thead>
-              <tbody>
-                {visible.map((r) => (
-                  <tr key={`${r.kind}-${r.name}`} className={viewing === r.name ? "row-selected" : undefined}>
-                    <td>{r.name}</td>
-                    <td>{r.previous ?? <span className="muted">No existe</span>}</td>
-                    <td>{r.current ?? <span className="muted">No existe</span>}</td>
-                    <td><span className={`pill pill-${r.kind}`}>{LABEL[r.kind]}</span></td>
-                    <td><button type="button" aria-label={`Ver en 3D: ${r.name}`} aria-pressed={viewing === r.name} onClick={() => setViewing(r.name)}>Ver en 3D</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {visible.length === 0 && <p className="empty">Ningún sólido coincide con lo buscado.</p>}
-          </div>
-          {viewing && previousId && currentId && (
-            <Viewer3D previousId={previousId} currentId={currentId} solidKey={viewing} onClose={() => setViewing(null)} />
-          )}
-          <p className="note">{plural(visible.length, "sólido mostrado", "sólidos mostrados")} de {rows.length}.</p>
+            {viewing
+              ? <Viewer3D previousId={previousId} currentId={currentId} solidKey={viewing} />
+              : <p className="note">Elige un sólido en la lista, o pulsa «Ver en 3D» en la tabla, para ver los dos periodos superpuestos.</p>}
+          </section>
         </>
       )}
     </section>

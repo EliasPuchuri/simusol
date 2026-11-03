@@ -179,7 +179,45 @@ a.button { display: inline-block; padding: .55rem 1rem; border-radius: 8px; bord
 .zones { display: flex; flex-direction: column; gap: .5rem; margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--line); }
 .zones label.inline { display: flex; align-items: center; gap: .45rem; margin: 0; }
 .swatch-common { background: #3d9a5a; } .swatch-added { background: #3b78c4; } .swatch-removed { background: #8a4fc4; }
-.classification .table-wrap th:last-child, .classification .table-wrap td:last-child { position: sticky; right: 0; background: #fff; box-shadow: -6px 0 6px -6px #0002; }
-.classification .table-wrap th:last-child { background: #f0f2f3; }
 .classification .table-wrap table { font-size: .85rem; }
-.classification .table-wrap th, .classification .table-wrap td { padding: .4rem .55rem; vertical-align: top; }
+.classification .table-wrap th, .classification .table-wrap td { padding: .4rem .4rem; vertical-align: top; }
+
+/* Simple board: counts, summary, totals, one table, one viewer */
+.dash { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: stretch; }
+@media (max-width: 960px) { .dash { grid-template-columns: 1fr; } }
+.legend-inline { display: flex; gap: 1rem; list-style: none; padding: 0; margin: 0 0 .4rem; font-size: .8rem; color: var(--muted); }
+.swatch-prev { background: #b9c0c5; } .swatch-curr { background: #e8730c; }
+.columns { list-style: none; padding: 0; margin: 0; display: flex; justify-content: space-around; gap: .5rem; height: 190px; }
+.columns > li { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; min-width: 0; }
+.pair { display: flex; align-items: flex-end; gap: 3px; height: 150px; width: 100%; justify-content: center; }
+.col { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; width: 1.6rem; }
+.col-value { font-size: .78rem; font-weight: 700; }
+.col-bar { display: block; width: 100%; min-height: 2px; border-radius: 3px 3px 0 0; }
+.col-prev { background: #b9c0c5; } .col-curr { background: #e8730c; }
+.col-label { font-size: .72rem; color: var(--muted); text-align: center; margin-top: .25rem; }
+.cards { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+.summary-card { display: grid; grid-template-columns: auto 1fr; column-gap: .5rem; align-items: center; padding: .55rem .7rem; border: 1px solid var(--line); border-radius: 10px; background: #f7f8f9; }
+.summary-icon { grid-row: span 3; font-size: 1.5rem; font-weight: 700; width: 2rem; text-align: center; }
+.summary-label { font-size: .85rem; color: var(--muted); }
+.summary-card strong { font-size: 1.6rem; line-height: 1.1; }
+.summary-pct { font-size: .85rem; font-weight: 600; }
+.tone-ok .summary-icon { color: var(--ok); } .tone-var { background: var(--warn-bg); border-color: #e0b060; } .tone-var .summary-icon { color: #c98a1b; }
+.tone-new .summary-icon { color: #3b78c4; } .tone-del .summary-icon { color: #8a4fc4; }
+.total-bars { display: flex; justify-content: space-around; align-items: flex-end; height: 150px; margin-bottom: .6rem; }
+.total-col { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; width: 40%; }
+.total-col .col-bar { width: 100%; }
+th.numeric, td.numeric { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.axis-tag { margin-left: .3rem; color: var(--muted); font-size: .7rem; }
+.pill-state-SIN\ CAMBIOS, .pill-state-VARIABLE, .pill-state-NUEVO, .pill-state-ELIMINADO { text-transform: uppercase; }
+.viewer-panel { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.viewer-filter { max-width: 420px; }
+.viewer-panel .viewer { margin-top: .5rem; border: none; padding: 0; background: none; }
+.viewer-head h3 { margin: 0 0 .5rem; font-size: 1.05rem; }
+.classification .table-wrap { max-height: 560px; }
+.totals { grid-template-columns: 1fr 1fr; gap: .4rem .8rem; }
+.totals div:last-child { grid-column: span 2; }
+.totals dd { font-size: 1.1rem; }
+.notes-box { font-size: .85rem; color: var(--muted); }
+.th-sub { display: block; font-weight: 400; color: var(--muted); font-size: .72rem; }
+.row-actions { flex-wrap: nowrap; gap: .25rem; }
+.classification .row-actions button { padding: .2rem .45rem; font-size: .78rem; }

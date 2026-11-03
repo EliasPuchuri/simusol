@@ -168,35 +168,16 @@ describe("comparison", () => {
     return user;
   }
 
-  it("compares automatically once both periods are ready and summarises in words", async () => {
+  it("compares automatically once both periods are ready and warns about renamed solids", async () => {
     await ready();
-    const both = (await screen.findByText("sólido está en ambos periodos")).closest("li")!;
-    expect(both).toHaveTextContent("1 sólido está en ambos periodos");
-    expect(screen.getByText("sólido solo está en el periodo anterior").closest("li")).toHaveTextContent("1 sólido solo está");
-    expect(screen.getByText("sólidos solo están en el periodo actual").closest("li")).toHaveTextContent("2 sólidos solo están");
-    expect(screen.getByText(/renombrado/)).toBeInTheDocument();
+    expect(await screen.findByText(/renombrado/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Filtrar sólido")).toBeInTheDocument();
   });
 
-  it("filters by situation and searches by name", async () => {
-    const user = await ready();
-    await screen.findByText(/está en ambos periodos/);
-    const table = screen.getByRole("table");
-    expect(within(table).getAllByRole("row")).toHaveLength(5);
-    await user.click(screen.getByRole("button", { name: /Solo en el actual \(2\)/ }));
-    expect(within(table).getAllByRole("row")).toHaveLength(3);
-    expect(within(table).getByText("new.obj")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Todos/ }));
-    await user.type(screen.getByLabelText("Buscar sólido"), "old");
-    await waitFor(() => expect(within(table).getAllByRole("row")).toHaveLength(2));
-  });
-
-  it("every row states its situation in text", async () => {
+  it("offers every solid of both periods in the list to inspect", async () => {
     await ready();
-    await screen.findByText(/está en ambos periodos/);
-    const table = screen.getByRole("table");
-    expect(within(table).getByText("En ambos")).toBeInTheDocument();
-    expect(within(table).getByText("Solo en el anterior")).toBeInTheDocument();
-    expect(within(table).getAllByText("Solo en el actual")).toHaveLength(2);
+    const select = await screen.findByLabelText("Filtrar sólido");
+    expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["Elige el sólido que vas a revisar…", "a_3", "new", "new2", "old"]);
   });
 });
 

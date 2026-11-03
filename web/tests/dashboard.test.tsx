@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "../src/App";
-import { deltaVolumes, filterRows, percentOf, polarPoint } from "../src/dashboard";
+import { diffPercent, diffText, filterRows, percentOf, periodCounts } from "../src/dashboard";
 import { POLL_MS } from "../src/config";
 
 let sequences: Record<string, unknown[]> = {};
@@ -65,41 +65,53 @@ describe("dashboard helpers", () => {
     expect(percentOf(1, 3)).toBe("33 %");
     expect(percentOf(0, 0)).toBe("—");
   });
-  it("builds volume differences per solid, signed, excluding the ones without a volume", () => {
-    const d = deltaVolumes(rows);
-    expect(d.map((x) => [x.key, Math.round(x.delta)])).toEqual([["b_3", -49923], ["new", 729], ["old", -343]]); // a_3 changed by 0: kept out of the ranking
-    expect(deltaVolumes([{ ...rows[1], volumes: { previous_m3: null, current_m3: 5 } } as any])).toEqual([]);
+
+  it("counts solids per period: a removed solid only exists before, a new one only after", () => {
+    const c = periodCounts(rows);
+    expect(c.previous).toEqual({ total: 3, sinCambios: 1, variables: 1, nuevos: 0, eliminados: 1 });
+    expect(c.current).toEqual({ total: 3, sinCambios: 1, variables: 1, nuevos: 1, eliminados: 0 });
   });
-  it("places a solid on the polar plot: azimuth is the angle from North, dip the distance from the centre", () => {
-    const north = polarPoint(0, 90, 100), east = polarPoint(90, 90, 100), centre = polarPoint(123, 0, 100);
-    expect(north.x).toBeCloseTo(0);
-    expect(north.y).toBeCloseTo(-100);
-    expect(east.x).toBeCloseTo(100);
-    expect(east.y).toBeCloseTo(0);
-    expect(centre.x).toBeCloseTo(0);
-    expect(centre.y).toBeCloseTo(0);
+
+  it("counts a solid without a state only in the total", () => {
+    const pending = { ...rows[0], key: "p_3", state: null, status: "pending" };
+    expect(periodCounts([pending as any]).current).toEqual({ total: 1, sinCambios: 0, variables: 0, nuevos: 0, eliminados: 0 });
   });
-  it("filters by state, body type in a chosen period, volume range and name", () => {
-    const f = (o: object) => filterRows(rows, { state: "all", type: "", scope: "any", min: null, max: null, query: "", ...o }).map((r) => r.key);
+
+  it("shows the volume difference: removed is -100, new has no base, never '-0.00'", () => {
+    expect(diffPercent(rows[3])).toBe(-100);
+    expect(diffPercent(rows[2])).toBeNull();
+    expect(diffPercent(rows[1])).toBe(-4.8);
+    expect(diffText(-4.8)).toBe("-4.80");
+    expect(diffText(-0.001)).toBe("0.00");
+    expect(diffText(null)).toBe("—");
+  });
+
+  it("filters by state and name", () => {
+    const f = (o: object) => filterRows(rows, { state: "all", query: "", ...o }).map((r) => r.key);
     expect(f({ state: "VARIABLE" })).toEqual(["b_3"]);
-    expect(f({ type: "TABULAR CURVO", scope: "current" })).toEqual(["b_3"]);
-    expect(f({ type: "TABULAR CURVO", scope: "previous" })).toEqual([]);
-    expect(f({ type: "TABULAR CURVO", scope: "any" })).toEqual(["b_3"]);
-    expect(f({ min: 500, max: 2000, scope: "current" })).toEqual(["a_3", "new"]);
-    expect(f({ min: 300, max: 400, scope: "previous" })).toEqual(["old"]);
     expect(f({ query: "NEW" })).toEqual(["new"]);
+    expect(f({ state: "NUEVO", query: "a_3" })).toEqual([]);
   });
 });
 
-describe("dashboard panel", () => {
-  it("shows counts and percentages over the solids that have a state, and says the base", async () => {
+describe("board", () => {
+  it("counts the solids per state with the percentage over the solids that have a state", async () => {
     await ready();
-    const chips = screen.getByRole("list", { name: "Resumen de estados" });
-    expect(within(chips).getByText("1 sin cambios (25 %)")).toBeInTheDocument();
-    expect(within(chips).getByText("1 variable (25 %)")).toBeInTheDocument();
-    expect(within(chips).getByText("1 nuevo (25 %)")).toBeInTheDocument();
-    expect(within(chips).getByText("1 eliminado (25 %)")).toBeInTheDocument();
-    expect(within(panel()).getByText(/Porcentajes sobre 4 sólidos con estado/)).toBeInTheDocument();
+    const cards = within(panel()).getByRole("region", { name: "Resumen de resultados" });
+    for (const [label, n] of [["Sin cambios", "1"], ["Variables", "1"], ["Nuevos", "1"], ["Eliminados", "1"]]) {
+      const card = within(cards).getByText(label).closest("li")!;
+      expect(card).toHaveTextContent(n);
+      expect(card).toHaveTextContent("25 %");
+    }
+    expect(within(cards).getByText(/Porcentajes sobre 4 sólidos con estado/)).toBeInTheDocument();
+  });
+
+  it("charts the count of both periods for every situation, with the period names", async () => {
+    await ready();
+    const chart = within(panel()).getByRole("region", { name: "Conteo de sólidos" });
+    expect(within(chart).getByLabelText("Total: 3 en 2025, 3 en 2026")).toBeInTheDocument();
+    expect(within(chart).getByLabelText("Nuevos: 0 en 2025, 1 en 2026")).toBeInTheDocument();
+    expect(within(chart).getByLabelText("Eliminados: 1 en 2025, 0 en 2026")).toBeInTheDocument();
   });
 
   it("compares the total volumes of both periods with the absolute and percentual difference", async () => {
@@ -128,51 +140,38 @@ describe("dashboard panel", () => {
     expect(within(panel()).queryByRole("region", { name: "Volumen total" })).not.toBeInTheDocument();
   });
 
-  it("draws the volume difference of every solid as readable bars, new and removed included", async () => {
+  it("has one table: type, state, both volumes, difference, Azimuth and Dip", async () => {
     await ready();
-    const chart = within(panel()).getByRole("region", { name: "Diferencia de volumen por sólido" });
-    const items = within(chart).getAllByRole("listitem");
-    expect(items.map((li) => li.textContent)).toEqual([
-      expect.stringContaining("b_3"), expect.stringContaining("new"), expect.stringContaining("old"),
-    ]);
-    expect(within(items[0]).getByText(/−49,923 m³/)).toBeInTheDocument();
-    expect(within(items[0]).getByText("Variable")).toBeInTheDocument();
-    expect(within(items[1]).getByText(/\+729 m³/)).toBeInTheDocument();
-    expect(within(items[2]).getByText("Eliminado")).toBeInTheDocument();
+    const table = within(panel()).getByRole("table", { name: "Clasificación por sólido" });
+    const headers = within(table).getAllByRole("columnheader").map((h) => h.textContent);
+    expect(headers).toEqual(["Sólido", "Tipo de cuerpo", "Estado", "Volumen (m³)2025", "Volumen (m³)2026", "Dif. %", "Azimuth (°)", "Dip (°)", "Acciones"]);
+    const cells = (k: string) => within(within(table).getAllByRole("row").find((r) => within(r).queryByText(k, { exact: true }))!).getAllByRole("cell").map((c) => c.textContent);
+    expect(cells("b_3").slice(0, 8)).toEqual(["b_3", "Tabular → Tabular curvo", "Variable", "1,034,768.000", "984,845.000", "-4.80", "82.00", "44.00"]);
+    expect(cells("a_3").slice(2, 6)).toEqual(["Sin cambios", "1,000.000", "1,000.000", "0.00"]);
+    expect(cells("new").slice(3, 8)).toEqual(["—", "729.000", "—", "60.00eje", "20.00"]);
+    expect(cells("old").slice(2, 8)).toEqual(["Eliminado", "343.000", "—", "-100.00", "—", "—"]);
   });
 
-  it("plots Azimuth and Dip of both periods and opens the 3D view from a point", async () => {
-    sequencesFor3d();
-    const user = await ready();
-    const chart = within(panel()).getByRole("region", { name: "Orientación de los sólidos" });
-    const svg = within(chart).getByRole("img", { name: /Azimuth.*Dip/ });
-    expect(svg.querySelectorAll("circle[data-period]").length).toBe(5); // a_3 x2, b_3 x2, new x1 (old has no interpretable orientation)
-    expect(within(chart).getByText(/1 sólido sin orientación interpretable/)).toBeInTheDocument();
-    await user.click(within(chart).getByRole("button", { name: /Ver b_3 en el visor 3D/ }));
-    expect(await screen.findByRole("heading", { name: /Vista 3D · b_3/ })).toBeInTheDocument();
-  });
-
-  it("shows type, volumes and orientation in the table and filters by type, volume range and name", async () => {
+  it("filters the table by state and by name", async () => {
     const user = await ready();
     const table = () => within(panel()).getByRole("table", { name: "Clasificación por sólido" });
-    const rowOf = (k: string) => within(table()).getAllByRole("row").find((r) => within(r).queryByText(k, { exact: true }))!;
-    expect(within(rowOf("b_3")).getByText("Tabular → Tabular curvo")).toBeInTheDocument();
-    expect(within(rowOf("b_3")).getByText("1,034,768 → 984,845")).toBeInTheDocument();
-    expect(within(rowOf("b_3")).getByText("Azimuth 82.0° · Dip 44.0°")).toBeInTheDocument();
-    expect(within(rowOf("new")).getByText("Eje: Trend 60.0° · Plunge 20.0°")).toBeInTheDocument();
-    expect(within(rowOf("old")).getByText("sin orientación interpretable")).toBeInTheDocument();
-
-    await user.selectOptions(within(panel()).getByLabelText("Tipo de cuerpo"), "GLOBULAR");
-    expect(within(table()).getAllByRole("row")).toHaveLength(3);
-    expect(within(panel()).getByText("2 de 4 sólidos")).toBeInTheDocument();
-    await user.selectOptions(within(panel()).getByLabelText("Tipo de cuerpo"), "");
-    await user.selectOptions(within(panel()).getByLabelText("Aplicar tipo y volumen al periodo"), "previous");
-    await user.type(within(panel()).getByLabelText("Volumen mínimo (m³)"), "500");
-    expect(within(table()).getAllByRole("row")).toHaveLength(3); // a_3 (1,000) and b_3 (1,034,768)
-    expect(within(panel()).getByText(/volumen del periodo anterior/i)).toBeInTheDocument();
-    await user.clear(within(panel()).getByLabelText("Volumen mínimo (m³)"));
+    await user.click(within(panel()).getByRole("button", { name: /Variables \(1\)/ }));
+    expect(within(table()).getAllByRole("row")).toHaveLength(2);
+    await user.click(within(panel()).getByRole("button", { name: /Todos/ }));
     await user.type(within(panel()).getByLabelText("Buscar en la clasificación"), "old");
     expect(within(table()).getAllByRole("row")).toHaveLength(2);
+    expect(within(panel()).getByText("1 de 4 sólidos")).toBeInTheDocument();
+  });
+
+  it("lets the reviewer pick the solid to inspect from a list, and opens it in 3D", async () => {
+    sequencesFor3d();
+    const user = await ready();
+    const select = screen.getByLabelText("Filtrar sólido");
+    expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["Elige el sólido que vas a revisar…", "a_3", "b_3", "new", "old"]);
+    await user.selectOptions(select, "b_3");
+    expect(await screen.findByRole("heading", { name: /Vista 3D · b_3/ })).toBeInTheDocument();
+    await user.selectOptions(select, "");
+    expect(screen.queryByRole("heading", { name: /Vista 3D/ })).not.toBeInTheDocument();
   });
 });
 

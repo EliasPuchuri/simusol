@@ -31,6 +31,8 @@ export default function App() {
 
   const available = (otherId: string | null) => datasets.filter((d) => d.id !== otherId && (d.file_count ?? 0) > 0);
 
+  const labelOf = (id: string | null, fallback: string) => datasets.find((d) => d.id === id)?.period_label || fallback;
+
   const steps = [
     { label: "Periodo anterior", done: previousId !== null },
     { label: "Periodo actual", done: currentId !== null },
@@ -75,7 +77,7 @@ export default function App() {
           saved={available(previousId)} onReady={setCurrentId} onChanged={refresh} />
       </div>
 
-      <Results previousId={previousId} currentId={currentId} reviewer={reviewer} onReviewerChange={setReviewer} />
+      <Results previousId={previousId} currentId={currentId} previousLabel={labelOf(previousId, "Anterior")} currentLabel={labelOf(currentId, "Actual")} reviewer={reviewer} onReviewerChange={setReviewer} />
     </main>
   );
 }

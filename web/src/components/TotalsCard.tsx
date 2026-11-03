@@ -9,7 +9,9 @@ const NOTES: Record<string, string> = {
   duplicate_keys_excluded: "Hay nombres repetidos dentro de un periodo: esos sólidos no entran en la suma.",
 };
 
-export function TotalsCard({ totals }: { totals: VolumeTotals | undefined }) {
+const millions = (v: number) => `${(v / 1e6).toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} M`;
+
+export function TotalsCard({ totals, previousLabel, currentLabel }: { totals: VolumeTotals | undefined; previousLabel: string; currentLabel: string }) {
   if (!totals || !totals.available) return null;
   const excluded = [
     ...totals.previous.excluded.map((e) => ({ ...e, reason: e.reason.includes(":") ? e.reason : `${e.reason}:previous` })),
@@ -17,7 +19,16 @@ export function TotalsCard({ totals }: { totals: VolumeTotals | undefined }) {
   ];
   return (
     <section className="dash-card" aria-label="Volumen total">
-      <h4>Volumen total <small className="badge badge-demo">Provisional</small></h4>
+      <h4>Volúmenes totales <small className="badge badge-demo">Provisional</small></h4>
+      <div className="total-bars" aria-hidden="true">
+        {([["prev", totals.previous.sum_m3, previousLabel], ["curr", totals.current.sum_m3, currentLabel]] as const).map(([k, v, label]) => (
+          <div key={k} className="total-col">
+            <span className="col-value">{millions(v)}</span>
+            <span className={`col-bar col-${k}`} style={{ height: `${(100 * v) / Math.max(1, totals.previous.sum_m3, totals.current.sum_m3)}%` }} />
+            <span className="col-label">{label}</span>
+          </div>
+        ))}
+      </div>
       <dl className="totals">
         <div><dt>Periodo anterior</dt><dd>{`${volumeText(totals.previous.sum_m3)} m³`}</dd>
           <small>{totals.previous.counted} de {totals.previous.total} sólidos del periodo anterior con volumen válido</small></div>
@@ -27,7 +38,10 @@ export function TotalsCard({ totals }: { totals: VolumeTotals | undefined }) {
           <dd>{`${signed(totals.difference_m3)} m³${totals.difference_pct == null ? "" : ` (${signedPercent(totals.difference_pct)})`}`}</dd>
           <small>actual menos anterior; el porcentaje es sobre el periodo anterior</small></div>
       </dl>
-      <ul className="notes">{totals.warnings.map((w) => NOTES[w] && <li key={w}>{NOTES[w]}</li>)}</ul>
+      <details className="notes-box">
+        <summary>Cómo leer este total</summary>
+        <ul className="notes">{totals.warnings.map((w) => NOTES[w] && <li key={w}>{NOTES[w]}</li>)}</ul>
+      </details>
       {excluded.length > 0 && (
         <details>
           <summary>Ver sólidos sin volumen ({excluded.length})</summary>

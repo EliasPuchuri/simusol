@@ -2,31 +2,28 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 
 import { api, type ComparisonReport, type ComparisonRow, type Review } from "../api";
 import { POLL_MS } from "../config";
-import { filterRows, latestOrientation, percentOf, shortOrientation, typeText, volumeText, type Scope } from "../dashboard";
+import { degreeText, diffPercent, diffText, filterRows, latestOrientation, typeText, volumeExact } from "../dashboard";
 import { describeRowFailure, describeRule, describeWarning, plural } from "../format";
-import { OrientationChart } from "./OrientationChart";
+import { CountsChart } from "./CountsChart";
 import { ReviewForm } from "./ReviewForm";
+import { SummaryCards } from "./SummaryCards";
 import { TotalsCard } from "./TotalsCard";
-import { VolumeChart } from "./VolumeChart";
 
-type Props = { previousId: string; currentId: string; onView: (key: string) => void; reviewer: string; onReviewerChange: (name: string) => void };
+type Props = {
+  previousId: string; currentId: string; previousLabel: string; currentLabel: string;
+  onView: (key: string) => void; viewing: string | null; reviewer: string; onReviewerChange: (name: string) => void;
+};
 type Expanded = { kind: "why" | "review" | "general"; key: string } | null;
 type Filter = "all" | "SIN CAMBIOS" | "VARIABLE" | "NUEVO" | "ELIMINADO" | "unassigned" | "pending";
 
 const LABEL = { "SIN CAMBIOS": "Sin cambios", VARIABLE: "Variable", NUEVO: "Nuevo", ELIMINADO: "Eliminado" } as const;
-const pct = (v: number | null | undefined, signed = false) => {
-  if (v == null) return "—";
-  const r = Math.abs(v) < 0.05 ? 0 : v; // never show "-0.0 %"
-  return `${signed && r > 0 ? "+" : ""}${r.toFixed(1)} %`;
-};
-const meters = (v: number | null | undefined) => (v == null ? "—" : `${v.toFixed(2)} m`);
 
 function stateLabel(r: ComparisonRow): string {
   if (r.state) return LABEL[r.state];
   return r.status === "pending" ? "Pendiente" : "Sin clasificar";
 }
 
-export function ClassificationPanel({ previousId, currentId, onView, reviewer, onReviewerChange }: Props) {
+export function ClassificationPanel({ previousId, currentId, previousLabel, currentLabel, onView, viewing, reviewer, onReviewerChange }: Props) {
   const [report, setReport] = useState<ComparisonReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
@@ -34,10 +31,6 @@ export function ClassificationPanel({ previousId, currentId, onView, reviewer, o
   const [open, setOpen] = useState<Expanded>(null);
   const [reviews, setReviews] = useState<Record<string, Review>>({});
   const [query, setQuery] = useState("");
-  const [type, setType] = useState("");
-  const [scope, setScope] = useState<Scope>("any");
-  const [minText, setMinText] = useState("");
-  const [maxText, setMaxText] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -97,15 +90,7 @@ export function ClassificationPanel({ previousId, currentId, onView, reviewer, o
     "SIN CAMBIOS": s?.["SIN CAMBIOS"] ?? 0, VARIABLE: s?.VARIABLE ?? 0, NUEVO: s?.NUEVO ?? 0, ELIMINADO: s?.ELIMINADO ?? 0,
     unassigned: s?.sin_clasificar ?? 0, pending: s?.pendientes ?? 0,
   };
-  const num = (t: string) => {
-    const n = Number(t.trim().replace(",", "."));
-    return t.trim() === "" || !Number.isFinite(n) ? null : n;
-  };
-  const min = num(minText), max = num(maxText);
-  const visible = filterRows(rows, { state: filter, type, scope, min, max, query });
-  const base = counts["SIN CAMBIOS"] + counts.VARIABLE + counts.NUEVO + counts.ELIMINADO;
-  const share = (n: number) => (calculated ? ` (${percentOf(n, base)})` : "");
-  const scopeText = scope === "previous" ? "del periodo anterior" : scope === "current" ? "del periodo actual" : "de cualquiera de los dos periodos";
+  const visible = filterRows(rows, { state: filter, query });
   const tabs: [Filter, string][] = [
     ["all", `Todos (${counts.all})`], ["SIN CAMBIOS", `Sin cambios (${counts["SIN CAMBIOS"]})`], ["VARIABLE", `Variables (${counts.VARIABLE})`],
     ["NUEVO", `Nuevos (${counts.NUEVO})`], ["ELIMINADO", `Eliminados (${counts.ELIMINADO})`],
@@ -134,110 +119,120 @@ export function ClassificationPanel({ previousId, currentId, onView, reviewer, o
         <p className="note">Todavía no se calcularon los cambios de forma, volumen y orientación entre los dos periodos. «Nuevo» y «Eliminado» ya se conocen por los nombres.</p>
       )}
 
-      {report && rows.length > 0 && (calculated || counts.NUEVO + counts.ELIMINADO > 0) && !running && (
+      {!running && report && (
+        <p className="actions">
+          <button type="button" disabled={starting} onClick={start} className={!calculated && !interrupted ? "primary" : undefined}>
+            {interrupted ? "Reintentar el cálculo" : calculated ? "Volver a calcular" : "Calcular cambios entre los dos periodos"}
+          </button>
+        </p>
+      )}
+
+      {report && calculated && !running && (
+        <div className="dash">
+          <CountsChart rows={rows} previousLabel={previousLabel} currentLabel={currentLabel} />
+          <SummaryCards counts={{ sin: counts["SIN CAMBIOS"], variable: counts.VARIABLE, nuevo: counts.NUEVO, eliminado: counts.ELIMINADO }} />
+          <TotalsCard totals={report.totals} previousLabel={previousLabel} currentLabel={currentLabel} />
+        </div>
+      )}
+      {counts.unassigned > 0 && <p className="alert alert-error">{counts.unassigned} sin clasificar: el cálculo falló para esos pares; no se les asignó ningún estado.</p>}
+      {counts.pending > 0 && !running && calculated && <p className="note">{plural(counts.pending, "par pendiente", "pares pendientes")} de calcular.</p>}
+
+      {report && rows.length > 0 && (
         <>
-          <ul className="chips" aria-label="Resumen de estados">
-            {calculated && <li className="chip chip-both">{`${counts["SIN CAMBIOS"]} sin cambios${share(counts["SIN CAMBIOS"])}`}</li>}
-            {calculated && <li className="chip chip-var">{`${counts.VARIABLE} ${counts.VARIABLE === 1 ? "variable" : "variables"}${share(counts.VARIABLE)}`}</li>}
-            <li className="chip chip-new">{`${counts.NUEVO} ${counts.NUEVO === 1 ? "nuevo" : "nuevos"}${share(counts.NUEVO)}`}</li>
-            <li className="chip chip-del">{`${counts.ELIMINADO} ${counts.ELIMINADO === 1 ? "eliminado" : "eliminados"}${share(counts.ELIMINADO)}`}</li>
-          </ul>
-          {calculated && <p className="note">Porcentajes sobre {plural(base, "sólido", "sólidos")} con estado; los sin clasificar y los pendientes se cuentan aparte.</p>}
-          {calculated && report && (
-            <div className="dash">
-              <TotalsCard totals={report.totals} />
-              <VolumeChart rows={rows} />
-              <OrientationChart rows={rows} onView={onView} />
+          <div className="toolbar">
+            <div className="tabs" role="group" aria-label="Filtrar por estado">
+              {tabs.map(([k, text]) => <button key={k} type="button" aria-pressed={filter === k} onClick={() => setFilter(k)}>{text}</button>)}
             </div>
-          )}
-          {counts.unassigned > 0 && <p className="alert alert-error">{counts.unassigned} sin clasificar: el cálculo falló para esos pares; no se les asignó ningún estado.</p>}
-          {counts.pending > 0 && <p className="note">{plural(counts.pending, "par pendiente", "pares pendientes")} de calcular.</p>}
-
-          <div className="tabs" role="group" aria-label="Filtrar por estado">
-            {tabs.map(([k, text]) => <button key={k} type="button" aria-pressed={filter === k} onClick={() => setFilter(k)}>{text}</button>)}
+            <label className="search">
+              <span className="sr-only">Buscar en la clasificación</span>
+              <input type="search" aria-label="Buscar en la clasificación" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar sólido…" />
+            </label>
           </div>
-
-          <div className="filters">
-            <label className="field"><span>Buscar en la clasificación</span><input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Nombre del sólido…" /></label>
-            <label className="field"><span>Tipo de cuerpo</span>
-              <select value={type} onChange={(e) => setType(e.target.value)}>
-                <option value="">Todos</option><option value="TABULAR">Tabular</option><option value="TABULAR CURVO">Tabular curvo</option><option value="GLOBULAR">Globular</option>
-              </select></label>
-            <label className="field"><span>Aplicar tipo y volumen al periodo</span>
-              <select value={scope} onChange={(e) => setScope(e.target.value as Scope)}>
-                <option value="any">Cualquiera</option><option value="previous">Anterior</option><option value="current">Actual</option>
-              </select></label>
-            <label className="field"><span>Volumen mínimo (m³)</span><input inputMode="decimal" value={minText} onChange={(e) => setMinText(e.target.value)} /></label>
-            <label className="field"><span>Volumen máximo (m³)</span><input inputMode="decimal" value={maxText} onChange={(e) => setMaxText(e.target.value)} /></label>
-          </div>
-          <p className="note">
-            <span>{`${visible.length} de ${rows.length} sólidos`}</span>
-            {(min !== null || max !== null) && <span> · Filtrando por el volumen {scopeText}.</span>}
-          </p>
 
           <div className="table-wrap">
             <table aria-label="Clasificación por sólido">
-              <thead><tr><th>Sólido</th><th>Estado</th><th>Tipo de cuerpo</th><th>Volumen (anterior → actual, m³)</th><th>Orientación</th><th>Qué cambió</th><th>Coincidencia (IoU)</th><th>Variación de volumen</th><th>Distancia P95</th><th>Centro</th><th>Acciones</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>Sólido</th><th>Tipo de cuerpo</th><th>Estado</th>
+                  <th className="numeric">Volumen (m³)<small className="th-sub">{previousLabel}</small></th><th className="numeric">Volumen (m³)<small className="th-sub">{currentLabel}</small></th>
+                  <th className="numeric">Dif. %</th><th className="numeric">Azimuth (°)</th><th className="numeric">Dip (°)</th><th>Acciones</th>
+                </tr>
+              </thead>
               <tbody>
-                {visible.map((r) => (
-                  <Fragment key={r.key}>
-                    <tr>
-                      <td>{r.key}</td>
-                      <td>
-                        <span className={`pill pill-state-${r.state ?? (r.status === "pending" ? "pending" : "none")}`}>{stateLabel(r)}</span>
-                        {reviews[r.key] && <small className="badge badge-demo">{reviews[r.key].agrees ? "Tu opinión: de acuerdo" : "Tu opinión: con observaciones"}</small>}
-                      </td>
-                      <td>{typeText(r)}</td>
-                      <td>{r.volumes ? `${volumeText(r.volumes.previous_m3)} → ${volumeText(r.volumes.current_m3)}` : "—"}</td>
-                      <td>{shortOrientation(latestOrientation(r))}</td>
-                      <td>{r.status === "failed" || r.status === "incident" ? describeRowFailure(r.description) : r.description}</td>
-                      <td>{pct(r.metrics?.iou_pct)}</td><td>{pct(r.metrics?.delta_volume_pct, true)}</td>
-                      <td>{meters(r.metrics?.p95_m)}</td><td>{meters(r.metrics?.centroid_m)}</td>
-                      <td className="row-actions">
-                        <button type="button" aria-label={`Ver en 3D: ${r.key}`} onClick={() => onView(r.key)}>Ver en 3D</button>
-                        {r.checks.length > 0 && (
+                {visible.map((r) => {
+                  const orientation = latestOrientation(r);
+                  const usable = orientation && orientation.azimuth != null && orientation.dip != null;
+                  return (
+                    <Fragment key={r.key}>
+                      <tr className={viewing === r.key ? "row-selected" : undefined}>
+                        <td>{r.key}</td>
+                        <td>{typeText(r)}</td>
+                        <td>
+                          <span className={`pill pill-state-${r.state ?? (r.status === "pending" ? "pending" : "none")}`}>{stateLabel(r)}</span>
+                          {reviews[r.key] && <small className="badge badge-demo">{reviews[r.key].agrees ? "Tu opinión: de acuerdo" : "Tu opinión: con observaciones"}</small>}
+                        </td>
+                        <td className="numeric">{volumeExact(r.volumes?.previous_m3)}</td>
+                        <td className="numeric">{volumeExact(r.volumes?.current_m3)}</td>
+                        <td className="numeric">{diffText(diffPercent(r))}</td>
+                        <td className="numeric">
+                          {usable ? degreeText(orientation.azimuth) : "—"}
+                          {usable && orientation.type === "axial" && <small className="axis-tag" title="Es un eje: Trend y Plunge, no un plano">eje</small>}
+                        </td>
+                        <td className="numeric">{usable ? degreeText(orientation.dip) : "—"}</td>
+                        <td>
+                          <div className="row-actions">
+                          <button type="button" aria-label={`Ver en 3D: ${r.key}`} aria-pressed={viewing === r.key} onClick={() => onView(r.key)}>Ver en 3D</button>
                           <button type="button" aria-label={`Por qué: ${r.key}`} aria-expanded={open?.kind === "why" && open.key === r.key}
                             onClick={() => setOpen(open?.kind === "why" && open.key === r.key ? null : { kind: "why", key: r.key })}>Por qué</button>
-                        )}
-                        <button type="button" aria-label={`Opinar: ${r.key}`} aria-expanded={open?.kind === "review" && open.key === r.key}
-                          onClick={() => setOpen(open?.kind === "review" && open.key === r.key ? null : { kind: "review", key: r.key })}>Opinar</button>
-                      </td>
-                    </tr>
-                    {open?.kind === "why" && open.key === r.key && (
-                      <tr>
-                        <td colSpan={11}>
-                          <section aria-label={`Por qué: ${r.key}`} className="why">
-                            {(["identico", "no_significativo"] as const).map((group) => (
-                              <div key={group}>
-                                <strong>{group === "identico" ? "Para ser prácticamente idéntico" : "Para ser un cambio no significativo"}</strong>
-                                <ul>
-                                  {r.checks.filter((c) => c.group === group).map((c, n) => (
-                                    <li key={n} className={c.applicable ? (c.passed ? "ok" : "bad") : "na"}>
-                                      <span aria-hidden="true">{c.applicable ? (c.passed ? "✓" : "✗") : "–"}</span> {describeRule(c)}
-                                      <span className="sr-only">{c.applicable ? (c.passed ? " (cumple)" : " (no cumple)") : ""}</span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                            ))}
-                            {r.warnings.length > 0 && <ul className="warnings">{r.warnings.map((w) => <li key={w}>{describeWarning(w)}</li>)}</ul>}
-                          </section>
+                          <button type="button" aria-label={`Opinar: ${r.key}`} aria-expanded={open?.kind === "review" && open.key === r.key}
+                            onClick={() => setOpen(open?.kind === "review" && open.key === r.key ? null : { kind: "review", key: r.key })}>Opinar</button>
+                          </div>
                         </td>
                       </tr>
-                    )}
-                    {open?.kind === "review" && open.key === r.key && (
-                      <tr>
-                        <td colSpan={11}>
-                          <ReviewForm title={`Tu opinión sobre ${r.key}`} rowKey={r.key} systemLabel={stateLabel(r)} reviewer={reviewer}
-                            onReviewerChange={onReviewerChange} previousId={previousId} currentId={currentId} onSaved={loadReviews} />
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                ))}
+                      {open?.kind === "why" && open.key === r.key && (
+                        <tr>
+                          <td colSpan={9}>
+                            <section aria-label={`Por qué: ${r.key}`} className="why">
+                              <p>{r.status === "failed" || r.status === "incident" ? describeRowFailure(r.description) : r.description}</p>
+                              {(["identico", "no_significativo"] as const).map((group) => r.checks.some((c) => c.group === group) && (
+                                <div key={group}>
+                                  <strong>{group === "identico" ? "Para ser prácticamente idéntico" : "Para ser un cambio no significativo"}</strong>
+                                  <ul>
+                                    {r.checks.filter((c) => c.group === group).map((c, n) => (
+                                      <li key={n} className={c.applicable ? (c.passed ? "ok" : "bad") : "na"}>
+                                        <span aria-hidden="true">{c.applicable ? (c.passed ? "✓" : "✗") : "–"}</span> {describeRule(c)}
+                                        <span className="sr-only">{c.applicable ? (c.passed ? " (cumple)" : " (no cumple)") : ""}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ))}
+                              {r.metrics && (
+                                <p className="note">
+                                  Medidas: IoU {r.metrics.iou_pct == null ? "—" : `${r.metrics.iou_pct.toFixed(1)} %`} · distancia P95 {r.metrics.p95_m == null ? "—" : `${r.metrics.p95_m.toFixed(2)} m`} · centro desplazado {r.metrics.centroid_m == null ? "—" : `${r.metrics.centroid_m.toFixed(2)} m`}
+                                </p>
+                              )}
+                              {r.warnings.length > 0 && <ul className="warnings">{r.warnings.map((w) => <li key={w}>{describeWarning(w)}</li>)}</ul>}
+                            </section>
+                          </td>
+                        </tr>
+                      )}
+                      {open?.kind === "review" && open.key === r.key && (
+                        <tr>
+                          <td colSpan={9}>
+                            <ReviewForm title={`Tu opinión sobre ${r.key}`} rowKey={r.key} systemLabel={stateLabel(r)} reviewer={reviewer}
+                              onReviewerChange={onReviewerChange} previousId={previousId} currentId={currentId} onSaved={loadReviews} />
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
+            {visible.length === 0 && <p className="empty">Ningún sólido coincide con lo buscado.</p>}
           </div>
+          <p className="note">{`${visible.length} de ${rows.length} sólidos`}</p>
           <p className="actions">
             <a className="button" href={api.comparisonCsvUrl(previousId, currentId)} download>Descargar reporte de comparación (CSV)</a>
             <button type="button" onClick={() => setOpen(open?.kind === "general" ? null : { kind: "general", key: "*" })}>Escribir una observación general</button>
@@ -248,12 +243,6 @@ export function ClassificationPanel({ previousId, currentId, onView, reviewer, o
               previousId={previousId} currentId={currentId} onSaved={loadReviews} />
           )}
         </>
-      )}
-
-      {!running && report && (
-        <button type="button" disabled={starting} onClick={start} className={!calculated && !interrupted ? "primary" : undefined}>
-          {interrupted ? "Reintentar el cálculo" : calculated ? "Volver a calcular" : "Calcular cambios entre los dos periodos"}
-        </button>
       )}
     </section>
   );

@@ -63,7 +63,7 @@ async function ready() {
   render(<App />);
   await user.selectOptions((await screen.findAllByLabelText("Usar un periodo ya guardado"))[0], "p");
   await user.selectOptions((await screen.findAllByLabelText("Usar un periodo ya guardado"))[0], "c");
-  await screen.findByText(/sólidos están en ambos periodos/);
+  await screen.findByRole("region", { name: "Clasificación de cambios" });
   return user;
 }
 const panel = () => screen.getByRole("region", { name: "Clasificación de cambios" });
@@ -77,14 +77,16 @@ describe("classification panel", () => {
     expect(screen.getByText(/orientación de las caras normalizada/)).toBeInTheDocument();
   });
 
-  it("does not show zero counts for states that were not calculated yet", async () => {
+  it("lists every solid before calculating, knows new and removed by name, and shows no counts yet", async () => {
     sequences[`GET ${url}`] = [empty];
     await ready();
-    const chips = await screen.findByRole("list", { name: "Resumen de estados" });
-    expect(within(chips).getByText("1 nuevo")).toBeInTheDocument();
-    expect(within(chips).getByText("1 eliminado")).toBeInTheDocument();
-    expect(within(chips).queryByText(/sin cambios/)).not.toBeInTheDocument();
-    expect(within(chips).queryByText(/variable/)).not.toBeInTheDocument();
+    const table = await screen.findByRole("table", { name: "Clasificación por sólido" });
+    const rowOf = (k: string) => within(table).getAllByRole("row").find((r) => within(r).queryByText(k, { exact: true }))!;
+    expect(within(rowOf("new")).getByText("Nuevo")).toBeInTheDocument();
+    expect(within(rowOf("old")).getByText("Eliminado")).toBeInTheDocument();
+    expect(within(rowOf("a_3")).getByText("Pendiente")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Resumen de resultados" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Conteo de sólidos" })).not.toBeInTheDocument();
   });
 
   it("shows progress and then the four states with their counts", async () => {
@@ -93,9 +95,9 @@ describe("classification panel", () => {
     const user = await ready();
     await user.click(await screen.findByRole("button", { name: "Calcular cambios entre los dos periodos" }));
     expect(await screen.findByText(/1 de 2 pares listos/)).toBeInTheDocument();
-    const cards = await screen.findByRole("list", { name: "Resumen de estados" });
-    for (const [label, n] of [["sin cambios", 1], ["variable", 1], ["nuevo", 1], ["eliminado", 1]] as const)
-      expect(within(cards).getByText(new RegExp(`^${n} ${label} \\(\\d+ %\\)$`, "i"))).toBeInTheDocument();
+    const cards = await screen.findByRole("region", { name: "Resumen de resultados" });
+    for (const label of ["Sin cambios", "Variables", "Nuevos", "Eliminados"])
+      expect(within(cards).getByText(label).closest("li")).toHaveTextContent(/1\s*25 %/);
   });
 
   it("lists every solid with its state as text and a plain-language description", async () => {
@@ -106,12 +108,19 @@ describe("classification panel", () => {
     expect(rows).toHaveLength(5);
     const byKey = (k: string) => rows.find((r) => within(r).queryByText(k, { exact: true }))!;
     expect(within(byKey("b_3")).getByText("Variable")).toBeInTheDocument();
-    expect(within(byKey("b_3")).getByText(/RECORTE: se eliminó parte del sólido/)).toBeInTheDocument();
-    expect(within(byKey("b_3")).getByText(/92\.0 %/)).toBeInTheDocument();
+    expect(within(byKey("b_3")).getByText("-6.90")).toBeInTheDocument();
     expect(within(byKey("new")).getByText("Nuevo")).toBeInTheDocument();
     expect(within(byKey("old")).getByText("Eliminado")).toBeInTheDocument();
     expect(within(byKey("a_3")).getByText("Sin cambios")).toBeInTheDocument();
     expect(table.textContent).not.toMatch(/NaN|null|undefined/);
+  });
+
+  it("keeps the plain-language description of a solid one click away", async () => {
+    sequences[`GET ${url}`] = [full()];
+    const user = await ready();
+    await screen.findByRole("table", { name: "Clasificación por sólido" });
+    await user.click(screen.getByRole("button", { name: "Por qué: b_3" }));
+    expect(within(screen.getByRole("region", { name: "Por qué: b_3" })).getByText(/RECORTE: se eliminó parte del sólido/)).toBeInTheDocument();
   });
 
   it("never shows a negative zero for a tiny volume change", async () => {
@@ -119,7 +128,7 @@ describe("classification panel", () => {
     sequences[`GET ${url}`] = [{ ...full(), rows: [tiny, variable, nuevo, eliminado] }];
     await ready();
     const table = await screen.findByRole("table", { name: "Clasificación por sólido" });
-    expect(table.textContent).not.toMatch(/-0\.0 %/);
+    expect(table.textContent).not.toMatch(/-0\.00/);
   });
 
   it("filters by state", async () => {
@@ -151,7 +160,8 @@ describe("classification panel", () => {
     expect(await screen.findByText(/1 sin clasificar/)).toBeInTheDocument();
     const table = screen.getByRole("table", { name: "Clasificación por sólido" });
     expect(within(table).getByText("Sin clasificar")).toBeInTheDocument();
-    expect(within(table).getByText(/tardó demasiado/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Por qué: x_3" }));
+    expect(within(screen.getByRole("region", { name: "Por qué: x_3" })).getByText(/tardó demasiado/)).toBeInTheDocument();
   });
 
   it("offers the CSV report and a retry after an interruption", async () => {

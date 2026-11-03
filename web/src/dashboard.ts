@@ -1,9 +1,8 @@
 import type { ComparisonRow, Orientation } from "./api";
 
 type Row = ComparisonRow;
-export type Scope = "any" | "previous" | "current";
-export type Filters = { state: string; type: string; scope: Scope; min: number | null; max: number | null; query: string };
-export type DeltaVolume = { key: string; state: Row["state"]; delta: number; previous: number | null; current: number | null };
+export type Filters = { state: string; query: string };
+export type PeriodCounts = { total: number; sinCambios: number; variables: number; nuevos: number; eliminados: number };
 
 const int = (v: number) => Math.round(v).toLocaleString("es-PE");
 export const volumeText = (v: number | null | undefined) => (v == null ? "—" : int(v));
@@ -14,24 +13,22 @@ export function percentOf(n: number, base: number): string {
   return base > 0 ? `${Math.round((100 * n) / base)} %` : "—";
 }
 
-export function polarPoint(azimuth: number, dip: number, radius: number): { x: number; y: number } {
-  const r = (radius * dip) / 90;
-  const a = (azimuth * Math.PI) / 180;
-  return { x: r * Math.sin(a), y: -r * Math.cos(a) }; // North up, East right; distance from the centre = dip
-}
-
-export function deltaVolumes(rows: Row[]): DeltaVolume[] {
-  const out: DeltaVolume[] = [];
+/** Counts of solids per period. A solid without a state yet (pending, failed) only counts in the total. */
+export function periodCounts(rows: Row[]): { previous: PeriodCounts; current: PeriodCounts } {
+  const empty = (): PeriodCounts => ({ total: 0, sinCambios: 0, variables: 0, nuevos: 0, eliminados: 0 });
+  const out = { previous: empty(), current: empty() };
   for (const r of rows) {
-    const prev = r.volumes?.previous_m3 ?? null;
-    const curr = r.volumes?.current_m3 ?? null;
-    let delta: number | null = null;
-    if (r.state === "NUEVO" && curr != null) delta = curr;
-    else if (r.state === "ELIMINADO" && prev != null) delta = -prev;
-    else if (r.status === "ok" && prev != null && curr != null) delta = curr - prev;
-    if (delta != null && Math.abs(delta) > 0.0005) out.push({ key: r.key, state: r.state, delta, previous: prev, current: curr });
+    for (const role of ["previous", "current"] as const) {
+      if (!(role === "previous" ? r.previous_filename : r.current_filename)) continue;
+      const c = out[role];
+      c.total++;
+      if (r.state === "SIN CAMBIOS") c.sinCambios++;
+      else if (r.state === "VARIABLE") c.variables++;
+      else if (r.state === "NUEVO") c.nuevos++;
+      else if (r.state === "ELIMINADO") c.eliminados++;
+    }
   }
-  return out.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+  return out;
 }
 
 const bodyType = (r: Row, role: "previous" | "current") => r.characterization?.[role]?.body_type ?? null;
@@ -40,26 +37,26 @@ export function filterRows(rows: Row[], f: Filters): Row[] {
   const q = f.query.trim().toLowerCase();
   return rows.filter((r) => {
     if (f.state === "unassigned" ? !(r.state === null && r.status !== "pending") : f.state === "pending" ? r.status !== "pending" : f.state !== "all" && r.state !== f.state) return false;
-    if (f.type) {
-      const types = f.scope === "any" ? [bodyType(r, "previous"), bodyType(r, "current")] : [bodyType(r, f.scope)];
-      if (!types.includes(f.type)) return false;
-    }
-    if (f.min !== null || f.max !== null) {
-      const vols = f.scope === "any" ? [r.volumes?.previous_m3, r.volumes?.current_m3] : [r.volumes?.[`${f.scope}_m3`]];
-      if (!vols.some((v) => v != null && (f.min === null || v >= f.min) && (f.max === null || v <= f.max))) return false;
-    }
     if (q && ![r.key, r.previous_filename, r.current_filename].some((t) => t?.toLowerCase().includes(q))) return false;
     return true;
   });
 }
 
-const deg = (v: number) => `${v.toFixed(1)}°`;
+const decimals = (v: number, n: number) => v.toLocaleString("es-PE", { minimumFractionDigits: n, maximumFractionDigits: n });
+export const volumeExact = (v: number | null | undefined) => (v == null ? "—" : decimals(v, 3));
 
-export function shortOrientation(o: Orientation | null | undefined): string {
-  if (!o) return "—";
-  if (o.type === "no_interpretable" || o.azimuth == null || o.dip == null) return "sin orientación interpretable";
-  return o.type === "axial" ? `Eje: Trend ${deg(o.azimuth)} · Plunge ${deg(o.dip)}` : `Azimuth ${deg(o.azimuth)} · Dip ${deg(o.dip)}`;
+/** Volume difference as the table shows it: a removed solid lost all of it; a new one has no base to compare with. */
+export function diffPercent(r: Row): number | null {
+  if (r.state === "ELIMINADO") return -100;
+  if (r.state === "NUEVO") return null;
+  return r.metrics?.delta_volume_pct ?? null;
 }
+export function diffText(v: number | null): string {
+  if (v == null) return "—";
+  const r = Math.abs(v) < 0.005 ? 0 : v; // never show "-0.00"
+  return decimals(r, 2);
+}
+export const degreeText = (v: number | null | undefined) => (v == null ? "—" : decimals(v, 2));
 
 const TYPE_LABEL: Record<string, string> = { TABULAR: "Tabular", "TABULAR CURVO": "Tabular curvo", GLOBULAR: "Globular" };
 export function typeText(r: Row): string {
