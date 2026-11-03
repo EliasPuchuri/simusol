@@ -70,14 +70,20 @@ export default function App() {
 
       {error && <p role="alert" className="alert alert-error">{error}</p>}
 
-      <div className="periods">
-        <PeriodCard title="Periodo anterior" folderAria="Carpeta del periodo anterior" modelName={modelName}
-          saved={available(currentId)} onReady={setPreviousId} onChanged={refresh} />
-        <PeriodCard title="Periodo actual" folderAria="Carpeta del periodo actual" modelName={modelName}
-          saved={available(previousId)} onReady={setCurrentId} onChanged={refresh} />
-      </div>
-
-      <Results previousId={previousId} currentId={currentId} previousLabel={labelOf(previousId, "Anterior")} currentLabel={labelOf(currentId, "Actual")} reviewer={reviewer} onReviewerChange={setReviewer} />
+      <Results
+        periods={(
+          <>
+            <h2>1. Carga de carpetas</h2>
+            <div className="periods">
+              <PeriodCard title="Periodo anterior" folderAria="Carpeta del periodo anterior" modelName={modelName}
+                saved={available(currentId)} onReady={setPreviousId} onChanged={refresh} />
+              <PeriodCard title="Periodo actual" folderAria="Carpeta del periodo actual" modelName={modelName}
+                saved={available(previousId)} onReady={setCurrentId} onChanged={refresh} />
+            </div>
+          </>
+        )}
+        previousId={previousId} currentId={currentId} previousLabel={labelOf(previousId, "Anterior")} currentLabel={labelOf(currentId, "Actual")}
+        reviewer={reviewer} onReviewerChange={setReviewer} />
     </main>
   );
 }

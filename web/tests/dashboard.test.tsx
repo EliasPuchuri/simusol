@@ -97,7 +97,7 @@ describe("dashboard helpers", () => {
 describe("board", () => {
   it("counts the solids per state with the percentage over the solids that have a state", async () => {
     await ready();
-    const cards = within(panel()).getByRole("region", { name: "Resumen de resultados" });
+    const cards = screen.getByRole("region", { name: "Resumen de resultados" });
     for (const [label, n] of [["Sin cambios", "1"], ["Variables", "1"], ["Nuevos", "1"], ["Eliminados", "1"]]) {
       const card = within(cards).getByText(label).closest("li")!;
       expect(card).toHaveTextContent(n);
@@ -108,7 +108,7 @@ describe("board", () => {
 
   it("charts the count of both periods for every situation, with the period names", async () => {
     await ready();
-    const chart = within(panel()).getByRole("region", { name: "Conteo de sólidos" });
+    const chart = screen.getByRole("region", { name: "Conteo de sólidos" });
     expect(within(chart).getByLabelText("Total: 3 en 2025, 3 en 2026")).toBeInTheDocument();
     expect(within(chart).getByLabelText("Nuevos: 0 en 2025, 1 en 2026")).toBeInTheDocument();
     expect(within(chart).getByLabelText("Eliminados: 1 en 2025, 0 en 2026")).toBeInTheDocument();
@@ -116,7 +116,7 @@ describe("board", () => {
 
   it("compares the total volumes of both periods with the absolute and percentual difference", async () => {
     await ready();
-    const card = within(panel()).getByRole("region", { name: "Volumen total" });
+    const card = screen.getByRole("region", { name: "Volumen total" });
     expect(within(card).getByText(/Periodo anterior/)).toBeInTheDocument();
     expect(within(card).getByText("1,036,111 m³")).toBeInTheDocument();
     expect(within(card).getByText("986,574 m³")).toBeInTheDocument();
@@ -129,7 +129,7 @@ describe("board", () => {
   it("lists the solids left out of the totals", async () => {
     const t = { ...totals, previous: { ...totals.previous, counted: 2, excluded: [{ key: "x_3", reason: "not_watertight:previous" }] }, warnings: [...totals.warnings, "excluded_solids"] };
     const user = await ready({ totals: t });
-    const card = within(panel()).getByRole("region", { name: "Volumen total" });
+    const card = screen.getByRole("region", { name: "Volumen total" });
     expect(within(card).getByText(/2 de 3 sólidos del periodo anterior/)).toBeInTheDocument();
     await user.click(within(card).getByText(/Ver sólidos sin volumen/));
     expect(within(card).getByText(/x_3.*superficie no cerrada/)).toBeInTheDocument();
@@ -137,7 +137,8 @@ describe("board", () => {
 
   it("does not show totals until the comparison was calculated", async () => {
     await ready({ totals: { available: false, reason: "pending" } });
-    expect(within(panel()).queryByRole("region", { name: "Volumen total" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Volumen total" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Volúmenes totales (pendiente)" })).toBeInTheDocument();
   });
 
   it("has one table: type, state, both volumes, difference, Azimuth and Dip", async () => {

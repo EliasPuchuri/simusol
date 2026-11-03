@@ -129,8 +129,8 @@ export function PeriodCard({ title, folderAria, modelName, saved, onReady, onCha
   const uploading = progress !== null;
 
   return (
-    <section className={`card${done ? " card-done" : ""}`} aria-labelledby={`${folderAria}-t`}>
-      <h2 id={`${folderAria}-t`}>{title}</h2>
+    <section className={`period${done ? " period-done" : ""}`} aria-labelledby={`${folderAria}-t`}>
+      <h3 id={`${folderAria}-t`}>{title}</h3>
 
       {!datasetId && !uploading && (
         <>
@@ -226,15 +226,14 @@ export function PeriodCard({ title, folderAria, modelName, saved, onReady, onCha
         </div>
       )}
 
-      {datasetId && detail && total > 0 && !uploading && <QualityPanel datasetId={datasetId} refreshKey={total} />}
-
-      {datasetId && detail && total > 0 && !uploading && (
-        <CharacterizationPanel datasetId={datasetId} refreshKey={total + (detail.orientation_reference_count ?? 0)} />
-      )}
-
       {datasetId && detail && !uploading && (
-        <OrientationReference datasetId={datasetId} periodTitle={title} storedCount={detail.orientation_reference_count ?? 0}
-          onSaved={() => load(datasetId)} />
+        <details className="advanced">
+          <summary>Calidad de las mallas y orientación (opcional)</summary>
+          {total > 0 && <QualityPanel datasetId={datasetId} refreshKey={total} />}
+          {total > 0 && <CharacterizationPanel datasetId={datasetId} refreshKey={total + (detail.orientation_reference_count ?? 0)} />}
+          <OrientationReference datasetId={datasetId} periodTitle={title} storedCount={detail.orientation_reference_count ?? 0}
+            onSaved={() => load(datasetId)} />
+        </details>
       )}
 
       {datasetId && !uploading && !confirmingArchive && (

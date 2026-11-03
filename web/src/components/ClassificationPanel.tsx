@@ -1,16 +1,13 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 
-import { api, type ComparisonReport, type ComparisonRow, type Review } from "../api";
-import { POLL_MS } from "../config";
+import { api, type ComparisonRow, type Review } from "../api";
 import { degreeText, diffPercent, diffText, filterRows, latestOrientation, typeText, volumeExact } from "../dashboard";
+import type { Comparison } from "../useComparison";
 import { describeRowFailure, describeRule, describeWarning, plural } from "../format";
-import { CountsChart } from "./CountsChart";
 import { ReviewForm } from "./ReviewForm";
-import { SummaryCards } from "./SummaryCards";
-import { TotalsCard } from "./TotalsCard";
 
 type Props = {
-  previousId: string; currentId: string; previousLabel: string; currentLabel: string;
+  comparison: Comparison; previousId: string; currentId: string; previousLabel: string; currentLabel: string;
   onView: (key: string) => void; viewing: string | null; reviewer: string; onReviewerChange: (name: string) => void;
 };
 type Expanded = { kind: "why" | "review" | "general"; key: string } | null;
@@ -23,29 +20,16 @@ function stateLabel(r: ComparisonRow): string {
   return r.status === "pending" ? "Pendiente" : "Sin clasificar";
 }
 
-export function ClassificationPanel({ previousId, currentId, previousLabel, currentLabel, onView, viewing, reviewer, onReviewerChange }: Props) {
-  const [report, setReport] = useState<ComparisonReport | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [starting, setStarting] = useState(false);
+export function ClassificationPanel({ comparison, previousId, currentId, previousLabel, currentLabel, onView, viewing, reviewer, onReviewerChange }: Props) {
+  const { report, rows, error, starting, running, calculated, interrupted, start } = comparison;
   const [filter, setFilter] = useState<Filter>("all");
   const [open, setOpen] = useState<Expanded>(null);
   const [reviews, setReviews] = useState<Record<string, Review>>({});
   const [query, setQuery] = useState("");
 
-  const load = useCallback(async () => {
-    try {
-      setReport(await api.getComparison(previousId, currentId));
-      setError(null);
-    } catch {
-      setError("No se pudo consultar el estado de la comparación.");
-    }
-  }, [previousId, currentId]);
-
   useEffect(() => {
-    setReport(null);
     setOpen(null);
-    void load();
-  }, [load]);
+  }, [previousId, currentId]);
 
   const loadReviews = useCallback(async () => {
     if (!reviewer.trim()) return setReviews({});
@@ -61,29 +45,6 @@ export function ClassificationPanel({ previousId, currentId, previousLabel, curr
     void loadReviews();
   }, [loadReviews]);
 
-  const running = report?.run?.state === "queued" || report?.run?.state === "running";
-  useEffect(() => {
-    if (!running) return;
-    const timer = setInterval(() => void load(), POLL_MS.comparison);
-    return () => clearInterval(timer);
-  }, [running, load]);
-
-  async function start() {
-    setStarting(true);
-    setError(null);
-    try {
-      await api.startComparison(previousId, currentId);
-      await load();
-    } catch {
-      setError("No se pudo iniciar el cálculo. Inténtalo de nuevo.");
-    } finally {
-      setStarting(false);
-    }
-  }
-
-  const rows = report?.rows ?? [];
-  const calculated = rows.some((r) => r.status === "ok" || r.status === "failed");
-  const interrupted = report?.run?.state === "failed";
   const s = report?.summary;
   const counts = {
     all: rows.length,
@@ -127,13 +88,6 @@ export function ClassificationPanel({ previousId, currentId, previousLabel, curr
         </p>
       )}
 
-      {report && calculated && !running && (
-        <div className="dash">
-          <CountsChart rows={rows} previousLabel={previousLabel} currentLabel={currentLabel} />
-          <SummaryCards counts={{ sin: counts["SIN CAMBIOS"], variable: counts.VARIABLE, nuevo: counts.NUEVO, eliminado: counts.ELIMINADO }} />
-          <TotalsCard totals={report.totals} previousLabel={previousLabel} currentLabel={currentLabel} />
-        </div>
-      )}
       {counts.unassigned > 0 && <p className="alert alert-error">{counts.unassigned} sin clasificar: el cálculo falló para esos pares; no se les asignó ningún estado.</p>}
       {counts.pending > 0 && !running && calculated && <p className="note">{plural(counts.pending, "par pendiente", "pares pendientes")} de calcular.</p>}
 

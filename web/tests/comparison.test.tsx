@@ -87,6 +87,7 @@ describe("classification panel", () => {
     expect(within(rowOf("a_3")).getByText("Pendiente")).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Resumen de resultados" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Conteo de sólidos" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Resumen de resultados (pendiente)" })).toBeInTheDocument();
   });
 
   it("shows progress and then the four states with their counts", async () => {
