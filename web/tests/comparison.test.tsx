@@ -183,6 +183,13 @@ describe("classification panel", () => {
     expect(await screen.findByRole("heading", { name: /Vista 3D · b_3/ })).toBeInTheDocument();
   });
 
+  it("retries the first query when it fails once, instead of leaving the table empty", async () => {
+    sequences[`GET ${url}`] = [{ __status: 500, body: {} }, full()];
+    await ready();
+    expect(await screen.findByRole("table", { name: "Clasificación por sólido" })).toBeInTheDocument();
+    expect(screen.queryByText(/No se pudo consultar/)).not.toBeInTheDocument();
+  });
+
   it("describes rules and warnings in Spanish", () => {
     expect(describeRule({ rule: "iou", group: "no_significativo", observed: 93, op: ">=", threshold: 90, passed: true, applicable: true })).toBe("Coincidencia (IoU): 93.0 % (mínimo 90.0 %)");
     expect(describeRule({ rule: "p95", group: "identico", observed: 0.2, op: "<=", threshold: 0.1, passed: false, applicable: true })).toBe("Distancia entre superficies (P95): 0.20 m (máximo 0.10 m)");

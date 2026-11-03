@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { api, type Matches } from "../api";
 import { friendlyError } from "../format";
@@ -7,7 +7,9 @@ import { ClassificationPanel } from "./ClassificationPanel";
 import { CountsChart } from "./CountsChart";
 import { SummaryCards } from "./SummaryCards";
 import { TotalsCard } from "./TotalsCard";
-import { Viewer3D } from "./Viewer3D";
+
+// Three.js is most of the bundle: it is fetched only when a solid is opened.
+const Viewer3D = lazy(() => import("./Viewer3D").then((m) => ({ default: m.Viewer3D })));
 
 type Props = {
   periods: ReactNode;
@@ -104,7 +106,11 @@ export function Results({ periods, previousId, currentId, previousLabel, current
               </select>
             </label>
             {viewing
-              ? <Viewer3D previousId={previousId} currentId={currentId} solidKey={viewing} />
+              ? (
+                <Suspense fallback={<p role="status">Preparando la vista 3D…</p>}>
+                  <Viewer3D previousId={previousId} currentId={currentId} solidKey={viewing} />
+                </Suspense>
+              )
               : <p className="note">Elige un sólido en la lista, o pulsa «Ver en 3D» en la tabla, para ver los dos periodos superpuestos.</p>}
           </>
         ) : <p className="note">Se activa cuando cargues los dos periodos.</p>}

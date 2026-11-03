@@ -1,8 +1,14 @@
 # Simusol — visor comparativo de sólidos geológicos
 
-Aplicación web para comparar dos periodos de modelos 3D de sólidos geológicos (`.obj`): carga progresiva por periodo, correspondencia por nombre, control de calidad de las mallas, visor 3D superpuesto y plantilla CSV de orientación de referencia.
+Aplicación web para comparar dos periodos de modelos 3D de sólidos geológicos (`.obj`): carga progresiva por periodo, correspondencia por nombre, control de calidad de las mallas, caracterización (tipo de cuerpo, Azimuth/Dip), clasificación de cambios (sin cambios, variable, nuevo, eliminado), visor 3D superpuesto con zonas común/agregada/removida y reportes CSV.
 
-Estado: **prototipo** en revisión con el área usuaria. Las métricas de cambio (volumen, IoU, clasificación) todavía no están implementadas: dependen de una política sobre mallas con orientación invertida que se debe acordar primero.
+Estado: **prototipo** en revisión con el área usuaria. Los resultados son **provisionales**:
+
+- Las mallas de muestra tienen volumen firmado negativo (caras invertidas). Los volúmenes se calculan sobre una copia en memoria con las caras invertidas; el original no se toca. La política definitiva debe acordarse con el área.
+- Los umbrales de clasificación (perfil `pilot-v1-provisional`) son de trabajo y falta calibrarlos con la referencia manual del área (Studio RM).
+- La superposición entre sólidos distintos de un mismo periodo no se evalúa: el volumen total es la suma de los cuerpos, no la unión.
+- Falta comprobar la compatibilidad espacial entre periodos (referencia y unidades) y la comparación mensual con datos reales.
+- La API no tiene autenticación ni cuotas de almacenamiento: protegerla en el despliegue antes de exponerla más allá de una prueba.
 
 ## Qué incluye
 
