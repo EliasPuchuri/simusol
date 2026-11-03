@@ -15,11 +15,12 @@ from typing import Any
 
 import numpy as np
 
+from solids.domain.comparison_rules import Profile
 from solids.geometry.characterization import _pca, characterize_mesh
 from solids.geometry.qc import _edge_counts
 from solids.geometry.scene import common_origin, load_obj
 
-PAIR_VERSION = "pair-1"
+PAIR_VERSION = "pair-2"
 N_POINTS = 30_000
 SEED = 42
 N_SEGMENTS = 8
@@ -81,6 +82,33 @@ def surface_distances(surface, points: np.ndarray, chunk: int = DISTANCE_CHUNK) 
 
     parts = [trimesh.proximity.closest_point(surface, points[i:i + chunk])[1] for i in range(0, len(points), max(1, chunk))]
     return np.concatenate(parts) if parts else np.empty(0)
+
+
+DISTANCE_FIRST = 10_000   # points per direction measured first; the rest only when the result can change a state
+THRESHOLD_BAND = 0.5      # +-50 % around a P95 threshold: sampling error was at most ~9 % on the pilot pairs
+
+
+def _near_a_threshold(p95: float) -> bool:
+    profile = Profile()
+    return any(t * (1 - THRESHOLD_BAND) <= p95 <= t * (1 + THRESHOLD_BAND) for t in (profile.id_p95_max, profile.ns_p95_max))
+
+
+def _p95_distance(surfaces: dict, samples: dict) -> float:
+    """P95 of the surface distances in both directions, in two stages.
+
+    The exact search is the most expensive step of a comparison. A first stage with fewer points is enough
+    when the value is far from every classification threshold (it cannot change a state); near a threshold
+    the remaining points are measured too, so the result is exactly the one computed with all of them.
+    """
+    def distances(lo: int, hi: int) -> np.ndarray:
+        return np.concatenate([surface_distances(surfaces["current"], samples["previous"][lo:hi]),
+                               surface_distances(surfaces["previous"], samples["current"][lo:hi])])
+
+    measured = distances(0, DISTANCE_FIRST)
+    p95 = float(np.percentile(measured, 95))
+    if _near_a_threshold(p95):
+        p95 = float(np.percentile(np.concatenate([measured, distances(DISTANCE_FIRST, N_POINTS)]), 95))
+    return p95
 
 
 def _failed(error: str) -> dict[str, Any]:
@@ -174,9 +202,7 @@ def compute_pair_metrics(previous: Path, current: Path) -> dict[str, Any]:
         except Exception:
             components[role] = None
     try:
-        distances = np.concatenate([surface_distances(surfaces["current"], samples["previous"]),
-                                    surface_distances(surfaces["previous"], samples["current"])])
-        metrics["p95_m"] = float(np.percentile(distances, 95))
+        metrics["p95_m"] = _p95_distance(surfaces, samples)
     except Exception as exc:
         reasons["p95_m"] = f"distance_failed: {exc}"[:200]
     metrics["centroid_m"] = float(np.linalg.norm(

@@ -126,3 +126,48 @@ def test_no_distance_query_is_ever_larger_than_the_batch(tmp_path, monkeypatch):
     r = pair(tmp_path, cube(UTM, 10), cube((UTM[0] + 500.0, UTM[1] + 300.0, UTM[2]), 10))
     assert r["status"] == "ok" and r["metrics"]["p95_m"] > 400          # far apart, still exact
     assert sizes and max(sizes) <= pair_metrics.DISTANCE_CHUNK
+
+
+def _queried_points(monkeypatch):
+    import trimesh
+
+    counts = []
+    real = trimesh.proximity.closest_point
+    monkeypatch.setattr(trimesh.proximity, "closest_point", lambda mesh, pts: (counts.append(len(pts)), real(mesh, pts))[1])
+    return counts
+
+
+def test_p95_far_from_every_threshold_is_measured_with_the_first_stage_only(tmp_path, monkeypatch):
+    from solids.geometry import pair_metrics
+
+    counts = _queried_points(monkeypatch)
+    r = pair(tmp_path, cube(UTM, 10), cube((UTM[0] + 500.0, UTM[1], UTM[2]), 10))
+    assert r["metrics"]["p95_m"] > 400
+    assert sum(counts) == 2 * pair_metrics.DISTANCE_FIRST
+
+
+def test_p95_near_a_classification_threshold_uses_every_point(tmp_path, monkeypatch):
+    from solids.geometry import pair_metrics
+
+    counts = _queried_points(monkeypatch)
+    r = pair(tmp_path, cube(UTM, 10), cube((UTM[0] + 2.0, UTM[1], UTM[2]), 10))   # P95 close to the 2.5 m threshold
+    assert 1.25 <= r["metrics"]["p95_m"] <= 3.75
+    assert sum(counts) == 2 * pair_metrics.N_POINTS
+
+
+def test_refined_p95_equals_the_p95_of_all_points(tmp_path):
+    import numpy as np
+    import trimesh
+
+    from solids.geometry import pair_metrics
+
+    a, b = cube(UTM, 10), cube((UTM[0] + 2.0, UTM[1], UTM[2]), 10)
+    r = pair(tmp_path, a, b)
+    shift = np.asarray(r["origin"]["east"], float), np.asarray(r["origin"]["north"], float), np.asarray(r["origin"]["elevation"], float)
+    origin = np.array([shift[0], shift[1], shift[2]]).reshape(3)
+    sa = trimesh.Trimesh(vertices=a.vertices - origin, faces=a.faces, process=False)
+    sb = trimesh.Trimesh(vertices=b.vertices - origin, faces=b.faces, process=False)
+    pa, _ = trimesh.sample.sample_surface(sa, pair_metrics.N_POINTS, seed=pair_metrics.SEED)
+    pb, _ = trimesh.sample.sample_surface(sb, pair_metrics.N_POINTS, seed=pair_metrics.SEED)
+    full = np.concatenate([pair_metrics.surface_distances(sb, pa), pair_metrics.surface_distances(sa, pb)])
+    assert r["metrics"]["p95_m"] == pytest.approx(float(np.percentile(full, 95)))
