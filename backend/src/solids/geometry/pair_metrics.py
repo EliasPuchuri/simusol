@@ -68,6 +68,21 @@ def _local_change(points_a: np.ndarray, points_b: np.ndarray) -> dict[str, Any]:
     return {"p95": float(np.percentile(angles, 95)), "max": float(np.max(angles)), "compared": len(angles)}
 
 
+DISTANCE_CHUNK = 1500  # query points per batch: bounds memory when the two solids are far apart
+
+
+def surface_distances(surface, points: np.ndarray, chunk: int = DISTANCE_CHUNK) -> np.ndarray:
+    """Exact point-to-surface distances in bounded batches.
+
+    For points far from the surface the exact search keeps a huge candidate set of triangles per point;
+    one call with every point asked for 2.4 GB on a pair of distant bodies. Batches keep the peak flat.
+    """
+    import trimesh
+
+    parts = [trimesh.proximity.closest_point(surface, points[i:i + chunk])[1] for i in range(0, len(points), max(1, chunk))]
+    return np.concatenate(parts) if parts else np.empty(0)
+
+
 def _failed(error: str) -> dict[str, Any]:
     return {"pair_version": PAIR_VERSION, "status": "failed", "error": error, "provisional": True, "warnings": [],
             "volumes": None, "metrics": None, "components": None, "characterization": None, "reasons": {}, "origin": None}
@@ -159,9 +174,8 @@ def compute_pair_metrics(previous: Path, current: Path) -> dict[str, Any]:
         except Exception:
             components[role] = None
     try:
-        distances = np.concatenate([
-            trimesh.proximity.closest_point(surfaces["current"], samples["previous"])[1],
-            trimesh.proximity.closest_point(surfaces["previous"], samples["current"])[1]])
+        distances = np.concatenate([surface_distances(surfaces["current"], samples["previous"]),
+                                    surface_distances(surfaces["previous"], samples["current"])])
         metrics["p95_m"] = float(np.percentile(distances, 95))
     except Exception as exc:
         reasons["p95_m"] = f"distance_failed: {exc}"[:200]

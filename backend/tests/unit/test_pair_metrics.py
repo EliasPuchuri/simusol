@@ -97,3 +97,32 @@ def test_unreadable_files_fail_the_pair_with_a_reason(tmp_path):
     (tmp_path / "a.obj").write_text("hello\n")
     r = compute_pair_metrics(tmp_path / "a.obj", write(tmp_path, "b.obj", cube(UTM)))
     assert r["status"] == "failed" and r["error"] and r["metrics"] is None
+
+
+def test_chunked_distances_equal_the_unchunked_ones():
+    import numpy as np
+    import trimesh
+
+    from solids.geometry.pair_metrics import surface_distances
+
+    ball = trimesh.creation.icosphere(subdivisions=3, radius=10.0)
+    target = trimesh.Trimesh(vertices=ball.vertices, faces=ball.faces, process=False)
+    points = np.random.default_rng(1).normal(scale=30.0, size=(3000, 3))
+    whole = trimesh.proximity.closest_point(target, points)[1]
+    for chunk in (1, 700, 3000, 10_000):
+        assert np.allclose(surface_distances(target, points, chunk=chunk), whole)
+    assert surface_distances(target, points[:0]).size == 0
+
+
+def test_no_distance_query_is_ever_larger_than_the_batch(tmp_path, monkeypatch):
+    """The regression behind a 2.4 GB peak on far-apart bodies: one giant query. Batches stay bounded."""
+    import trimesh
+
+    from solids.geometry import pair_metrics
+
+    sizes = []
+    real = trimesh.proximity.closest_point
+    monkeypatch.setattr(trimesh.proximity, "closest_point", lambda mesh, pts: (sizes.append(len(pts)), real(mesh, pts))[1])
+    r = pair(tmp_path, cube(UTM, 10), cube((UTM[0] + 500.0, UTM[1] + 300.0, UTM[2]), 10))
+    assert r["status"] == "ok" and r["metrics"]["p95_m"] > 400          # far apart, still exact
+    assert sizes and max(sizes) <= pair_metrics.DISTANCE_CHUNK
