@@ -16,11 +16,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
       - name: Backend tests (inside the runtime image base)
-        uses: docker/build-push-action@v6
-        with:
-          context: backend
-          target: test
-          cache-from: type=gha,scope=api
+        run: |
+          set +e
+          docker buildx build backend --target test --progress=plain > backend-tests.log 2>&1
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            # Surface the failing tests as annotations (the raw log is not readable without being signed in).
+            grep -E "^#[0-9]+ [0-9.]+ (FAILED|ERROR|E  )" backend-tests.log | head -15 | sed -E 's/^#[0-9]+ [0-9.]+ /::error::/'
+            tail -5 backend-tests.log | sed -E 's/^/::error::/'
+          fi
+          exit "$status"
       - name: Web type-check and tests
         uses: docker/build-push-action@v6
         with:

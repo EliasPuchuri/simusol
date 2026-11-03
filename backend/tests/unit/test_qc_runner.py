@@ -67,3 +67,12 @@ def test_the_worker_runs_numerical_libraries_with_one_thread(tmp_path):
         assert a.analyze(tmp_path / "a.obj")["threads"] == "1"
     finally:
         a.close()
+
+
+def test_child_start_up_is_not_charged_to_the_file_timeout(tmp_path):
+    a = IsolatedAnalyzer("support.slow_module:analyze", timeout=0.5)
+    try:
+        (tmp_path / "a.obj").write_text(GOOD)
+        assert a.analyze(tmp_path / "a.obj")["status"] == "ok"
+    finally:
+        a.close()

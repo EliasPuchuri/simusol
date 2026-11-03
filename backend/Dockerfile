@@ -20,7 +20,7 @@ FROM base AS test
 RUN pip install pytest==9.2.0 httpx==0.28.1
 COPY src ./src
 COPY tests ./tests
-RUN python -m pytest -q
+RUN python -m pytest -q -rf --tb=short
 
 FROM base AS runtime
 ENV SOLIDS_DATA_DIR=/data

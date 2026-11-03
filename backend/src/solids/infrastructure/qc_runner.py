@@ -24,6 +24,8 @@ _SINGLE_THREAD_ENV = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREAD
 
 DEFAULT_TARGET = "solids.geometry.qc:analyze_mesh"
 DEFAULT_TIMEOUT = 180.0
+START_TIMEOUT = 120.0  # a fresh child importing the native libraries on a slow host; not charged to the file
+_WARM_UP = ("numpy", "scipy.spatial", "trimesh", "manifold3d")
 
 
 def _plain(value: Any) -> Any:
@@ -39,6 +41,12 @@ def _plain(value: Any) -> Any:
 def _child(conn, target: str) -> None:  # runs in the spawned process
     module_name, func_name = target.split(":")
     analyze = getattr(importlib.import_module(module_name), func_name)
+    for name in _WARM_UP:  # pay the import cost before the first file's clock starts
+        try:
+            importlib.import_module(name)
+        except Exception:
+            pass
+    conn.send(("ready", None))
     while True:
         paths = conn.recv()
         if paths is None:
@@ -49,16 +57,21 @@ def _child(conn, target: str) -> None:  # runs in the spawned process
             conn.send(("error", f"{exc.__class__.__name__}: {exc}"[:200]))
 
 
+class _StartFailed(Exception):
+    pass
+
+
 def _plain_failure(factory: Callable[[str], dict], error: str) -> dict[str, Any]:
     return to_jsonable(_plain(factory(error)))  # plain JSON, like every result that crosses the pipe
 
 
 class IsolatedAnalyzer:
     def __init__(self, target: str = DEFAULT_TARGET, timeout: float = DEFAULT_TIMEOUT,
-                 failure: Callable[[str], dict] = failed_result) -> None:
+                 failure: Callable[[str], dict] = failed_result, start_timeout: float = START_TIMEOUT) -> None:
         self._failure = failure
         self._target = target
         self._timeout = timeout
+        self._start_timeout = start_timeout
         self._ctx = mp.get_context("spawn")
         self._proc: mp.process.BaseProcess | None = None
         self._conn = None
@@ -83,6 +96,13 @@ class IsolatedAnalyzer:
                     os.environ.pop(key, None)
         child.close()
         self._conn = parent
+        try:
+            started = parent.poll(self._start_timeout) and parent.recv()[0] == "ready"
+        except (EOFError, OSError):
+            started = False
+        if not started:
+            self._kill()
+            raise _StartFailed()
 
     def _kill(self) -> None:
         if self._proc is not None:
@@ -94,7 +114,10 @@ class IsolatedAnalyzer:
         self._proc, self._conn = None, None
 
     def analyze(self, *paths: Path) -> dict[str, Any]:
-        self._ensure_child()
+        try:
+            self._ensure_child()
+        except _StartFailed:
+            return _plain_failure(self._failure, "the analysis process could not start")
         try:
             self._conn.send([str(p) for p in paths])
             if not self._conn.poll(self._timeout):
