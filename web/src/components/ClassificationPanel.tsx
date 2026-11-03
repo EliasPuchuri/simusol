@@ -62,10 +62,13 @@ export function ClassificationPanel({ comparison, previousId, currentId, previou
   return (
     <section className="classification" aria-labelledby="class-title">
       <h3 id="class-title">Clasificación de cambios</h3>
-      <p className="alert alert-warn">
-        <strong>Resultados provisionales.</strong> Los volúmenes se calcularon sobre una copia con la orientación de las caras normalizada
-        (las mallas recibidas la tienen invertida) y los umbrales de clasificación son de trabajo. Falta la aprobación del área.
-      </p>
+      <details className="alert alert-warn provisional">
+        <summary><strong>Resultados provisionales</strong></summary>
+        <p>
+          Los volúmenes se calcularon sobre una copia con la orientación de las caras normalizada
+          (las mallas recibidas la tienen invertida) y los umbrales de clasificación son de trabajo. Falta la aprobación del área.
+        </p>
+      </details>
 
       {running && report?.run && (
         <div role="status" aria-live="polite" className="progress">
@@ -119,21 +122,21 @@ export function ClassificationPanel({ comparison, previousId, currentId, previou
                   return (
                     <Fragment key={r.key}>
                       <tr className={viewing === r.key ? "row-selected" : undefined}>
-                        <td>{r.key}</td>
-                        <td>{typeText(r)}</td>
-                        <td>
+                        <td className="cell-name">{r.key}</td>
+                        <td data-label="Tipo de cuerpo">{typeText(r)}</td>
+                        <td className="cell-state">
                           <span className={`pill pill-state-${r.state ?? (r.status === "pending" ? "pending" : "none")}`}>{stateLabel(r)}</span>
                           {reviews[r.key] && <small className="badge badge-demo">{reviews[r.key].agrees ? "Tu opinión: de acuerdo" : "Tu opinión: con observaciones"}</small>}
                         </td>
-                        <td className="numeric">{volumeExact(r.volumes?.previous_m3)}</td>
-                        <td className="numeric">{volumeExact(r.volumes?.current_m3)}</td>
-                        <td className="numeric">{diffText(diffPercent(r))}</td>
-                        <td className="numeric">
+                        <td className="numeric" data-label={`Vol. ${previousLabel} (m³)`}>{volumeExact(r.volumes?.previous_m3)}</td>
+                        <td className="numeric" data-label={`Vol. ${currentLabel} (m³)`}>{volumeExact(r.volumes?.current_m3)}</td>
+                        <td className="numeric" data-label="Dif. %">{diffText(diffPercent(r))}</td>
+                        <td className="numeric" data-label="Azimuth (°)">
                           {usable ? degreeText(orientation.azimuth) : "—"}
                           {usable && orientation.type === "axial" && <small className="axis-tag" title="Es un eje: Trend y Plunge, no un plano">eje</small>}
                         </td>
-                        <td className="numeric">{usable ? degreeText(orientation.dip) : "—"}</td>
-                        <td>
+                        <td className="numeric" data-label="Dip (°)">{usable ? degreeText(orientation.dip) : "—"}</td>
+                        <td className="cell-wide">
                           <div className="row-actions">
                           <button type="button" aria-label={`Ver en 3D: ${r.key}`} aria-pressed={viewing === r.key} onClick={() => onView(r.key)}>Ver en 3D</button>
                           <button type="button" aria-label={`Por qué: ${r.key}`} aria-expanded={open?.kind === "why" && open.key === r.key}
