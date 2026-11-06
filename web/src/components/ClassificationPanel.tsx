@@ -5,6 +5,7 @@ import { degreeText, diffPercent, diffText, filterRows, latestOrientation, typeT
 import type { Comparison } from "../useComparison";
 import { describeRowFailure, describeRule, describeWarning, plural } from "../format";
 import { ReviewForm } from "./ReviewForm";
+import { SpatialNotice } from "./SpatialNotice";
 
 type Props = {
   comparison: Comparison; previousId: string; currentId: string; previousLabel: string; currentLabel: string;
@@ -69,6 +70,8 @@ export function ClassificationPanel({ comparison, previousId, currentId, previou
           (las mallas recibidas la tienen invertida) y los umbrales de clasificación son de trabajo. Falta la aprobación del área.
         </p>
       </details>
+
+      <SpatialNotice spatial={report?.spatial} />
 
       {running && report?.run && (
         <div role="status" aria-live="polite" className="progress">

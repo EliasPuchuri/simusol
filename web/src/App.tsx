@@ -9,6 +9,8 @@ export default function App() {
   const [previousId, setPreviousId] = useState<string | null>(null);
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [modelName, setModelName] = useState("Modelo");
+  const [spatialReference, setSpatialReference] = useState("");
+  const [units, setUnits] = useState("");
   const [reviewer, setReviewerState] = useState(() => localStorage.getItem("simusol.reviewer") ?? "");
   const setReviewer = (name: string) => {
     setReviewerState(name);
@@ -62,6 +64,14 @@ export default function App() {
             <input value={modelName} onChange={(e) => setModelName(e.target.value)} />
           </label>
           <label className="field">
+            <span>Referencia espacial de los periodos que cargues <em>(opcional)</em></span>
+            <input value={spatialReference} onChange={(e) => setSpatialReference(e.target.value)} placeholder="Ej.: UTM 18S WGS84" />
+          </label>
+          <label className="field">
+            <span>Unidades <em>(opcional)</em></span>
+            <input value={units} onChange={(e) => setUnits(e.target.value)} placeholder="Ej.: m" />
+          </label>
+          <label className="field">
             <span>Tu nombre (para firmar tus opiniones)</span>
             <input value={reviewer} onChange={(e) => setReviewer(e.target.value)} />
           </label>
@@ -75,9 +85,9 @@ export default function App() {
           <>
             <h2>1. Carga de carpetas</h2>
             <div className="periods">
-              <PeriodCard title="Periodo anterior" folderAria="Carpeta del periodo anterior" modelName={modelName}
+              <PeriodCard title="Periodo anterior" folderAria="Carpeta del periodo anterior" modelName={modelName} spatialReference={spatialReference} units={units}
                 saved={available(currentId)} onReady={setPreviousId} onChanged={refresh} />
-              <PeriodCard title="Periodo actual" folderAria="Carpeta del periodo actual" modelName={modelName}
+              <PeriodCard title="Periodo actual" folderAria="Carpeta del periodo actual" modelName={modelName} spatialReference={spatialReference} units={units}
                 saved={available(previousId)} onReady={setCurrentId} onChanged={refresh} />
             </div>
           </>

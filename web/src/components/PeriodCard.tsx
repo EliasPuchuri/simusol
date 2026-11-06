@@ -14,6 +14,8 @@ type Props = {
   title: string;
   folderAria: string;
   modelName: string;
+  spatialReference?: string;
+  units?: string;
   saved: Dataset[];
   onReady: (id: string | null) => void;
   onChanged: () => void | Promise<void>;
@@ -21,7 +23,7 @@ type Props = {
 
 type Failure = { filename: string; message: string };
 
-export function PeriodCard({ title, folderAria, modelName, saved, onReady, onChanged }: Props) {
+export function PeriodCard({ title, folderAria, modelName, spatialReference, units, saved, onReady, onChanged }: Props) {
   const [datasetId, setDatasetId] = useState<string | null>(null);
   const [detail, setDetail] = useState<DatasetDetail | null>(null);
   const [label, setLabel] = useState("");
@@ -54,7 +56,8 @@ export function PeriodCard({ title, folderAria, modelName, saved, onReady, onCha
       if (!id) {
         const created = await api.createDataset({
           name: modelName || "Modelo", period_label: label.trim() || folder || title,
-          period_kind: kind, is_demo: false, spatial_reference: null, units: null,
+          period_kind: kind, is_demo: false,
+          spatial_reference: spatialReference?.trim() || null, units: units?.trim() || null,
         });
         id = created.id;
         setDatasetId(id);

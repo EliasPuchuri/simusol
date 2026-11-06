@@ -95,6 +95,30 @@ describe("loading a period", () => {
     expect(calls.filter((c) => c.url.endsWith("/files"))).toHaveLength(2);
   });
 
+  it("sends the declared spatial reference and units when the period is created", async () => {
+    routes["POST /api/v1/datasets/d1/files"] = () => ({ status: 201, body: {} });
+    const user = userEvent.setup();
+    routes["GET /api/v1/datasets"] = () => [];
+    routes["POST /api/v1/datasets"] = () => ds();
+    routes["GET /api/v1/datasets/d1"] = () => detail({ files: [entry("a.obj", "a")], counts: { files: 1, keys: 1 } });
+    render(<App />);
+    await user.click(screen.getByText("Ajustes"));
+    await user.type(screen.getByLabelText(/Referencia espacial de los periodos/), "UTM 18S WGS84");
+    await user.type(screen.getByLabelText(/^Unidades/), "m");
+    await user.upload(await screen.findByLabelText("Carpeta del periodo anterior"), [file("a.obj", "2025")]);
+    await screen.findByText("1 sólido cargado");
+    const create = calls.find((c) => c.method === "POST" && c.url === "/api/v1/datasets")!;
+    expect(create.body).toMatchObject({ spatial_reference: "UTM 18S WGS84", units: "m" });
+  });
+
+  it("leaves them empty (null) when nothing was declared", async () => {
+    routes["POST /api/v1/datasets/d1/files"] = () => ({ status: 201, body: {} });
+    await loadFolder([file("a.obj", "2025")]);
+    await screen.findByText("1 sólido cargado");
+    const create = calls.find((c) => c.method === "POST" && c.url === "/api/v1/datasets")!;
+    expect(create.body).toMatchObject({ spatial_reference: null, units: null });
+  });
+
   it("ignores non-OBJ files and says so", async () => {
     routes["POST /api/v1/datasets/d1/files"] = () => ({ status: 201, body: {} });
     await loadFolder([file("a.obj", "P"), file("rev.rmproj", "P")]);

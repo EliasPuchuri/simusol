@@ -190,6 +190,43 @@ describe("classification panel", () => {
     expect(screen.queryByText(/No se pudo consultar/)).not.toBeInTheDocument();
   });
 
+  describe("spatial compatibility notice", () => {
+    const spatial = (status: string, over: object = {}) => ({
+      status, issues: [], extent_checked: true,
+      declared: { previous: { spatial_reference: "UTM 18S", units: "m" }, current: { spatial_reference: "UTM 18S", units: "m" } }, ...over,
+    });
+
+    it("says nothing when both periods are compatible", async () => {
+      sequences[`GET ${url}`] = [{ ...full(), spatial: spatial("compatible") }];
+      await ready();
+      await screen.findByRole("table", { name: "Clasificación por sólido" });
+      expect(screen.queryByText(/sistemas distintos|se asume el mismo sistema|no se superponen en Este/)).not.toBeInTheDocument();
+    });
+
+    it("warns loudly when the declared systems differ and shows both", async () => {
+      sequences[`GET ${url}`] = [{ ...full(), spatial: spatial("mismatch", { declared: { previous: { spatial_reference: "UTM 18S", units: "m" }, current: { spatial_reference: "UTM 19S", units: "m" } } }) }];
+      await ready();
+      const alert = await screen.findByText(/declaran sistemas distintos/);
+      expect(alert).toHaveTextContent("«UTM 18S» y «UTM 19S»");
+      expect(alert).toHaveTextContent(/no confíes en los resultados/);
+    });
+
+    it("warns when the areas covered by the two periods do not overlap", async () => {
+      sequences[`GET ${url}`] = [{ ...full(), spatial: spatial("extent_disjoint", { issues: ["extent_disjoint"] }) }];
+      await ready();
+      expect(await screen.findByText(/no se superponen en Este ni Norte/)).toBeInTheDocument();
+    });
+
+    it("tells quietly that nothing was declared and what is assumed", async () => {
+      sequences[`GET ${url}`] = [{ ...full(), spatial: spatial("undeclared", { declared: { previous: { spatial_reference: null, units: null }, current: { spatial_reference: null, units: null } } }) }];
+      await ready();
+      const note = await screen.findByText(/No se declaró la referencia espacial/);
+      expect(note).toHaveTextContent(/se asume el mismo sistema UTM en metros/);
+      expect(note).toHaveTextContent(/sí coinciden/);
+      expect(note).not.toHaveAttribute("role", "alert");
+    });
+  });
+
   it("describes rules and warnings in Spanish", () => {
     expect(describeRule({ rule: "iou", group: "no_significativo", observed: 93, op: ">=", threshold: 90, passed: true, applicable: true })).toBe("Coincidencia (IoU): 93.0 % (mínimo 90.0 %)");
     expect(describeRule({ rule: "p95", group: "identico", observed: 0.2, op: "<=", threshold: 0.1, passed: false, applicable: true })).toBe("Distancia entre superficies (P95): 0.20 m (máximo 0.10 m)");

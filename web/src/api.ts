@@ -151,12 +151,18 @@ export type ComparisonRow = {
   profile: string;
   error?: string | null;
 };
+export type SpatialCheck = {
+  status: "compatible" | "undeclared" | "mismatch" | "extent_disjoint";
+  issues: string[]; extent_checked: boolean;
+  declared: Record<"previous" | "current", { spatial_reference: string | null; units: string | null }>;
+};
 export type ComparisonReport = {
   run: (QcRun & { previous_id?: string; current_id?: string }) | null;
   provisional: boolean;
   profile: string;
   summary: { "SIN CAMBIOS": number; VARIABLE: number; NUEVO: number; ELIMINADO: number; sin_clasificar: number; pendientes: number };
   totals?: VolumeTotals;
+  spatial?: SpatialCheck;
   rows: ComparisonRow[];
 };
 export type Review = {
