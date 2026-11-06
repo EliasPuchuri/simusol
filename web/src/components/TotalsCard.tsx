@@ -1,5 +1,6 @@
-import type { VolumeTotals } from "../api";
-import { exclusionText, signed, signedPercent, volumeText } from "../dashboard";
+import type { PeriodOverlap, VolumeTotals } from "../api";
+import { exclusionText, signed, signedPercent, volumeShort, volumeText } from "../dashboard";
+import { plural } from "../format";
 
 const NOTES: Record<string, string> = {
   sum_of_bodies_not_union: "Es la suma de los volúmenes de cada sólido, no el volumen de la unión.",
@@ -10,6 +11,13 @@ const NOTES: Record<string, string> = {
 };
 
 const millions = (v: number) => `${(v / 1e6).toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} M`;
+
+function overlapNote(totals: Extract<VolumeTotals, { available: true }>): string | null {
+  const text = (label: string, o: PeriodOverlap | undefined) =>
+    o?.evaluated && o.pairs ? `${plural(o.pairs, "par", "pares")} en el periodo ${label} (${volumeShort(o.pairwise_common_m3)} m³ en común)` : null;
+  const parts = [text("anterior", totals.previous.overlap), text("actual", totals.current.overlap)].filter(Boolean);
+  return parts.length ? `Hay sólidos que se superponen: ${parts.join(" y ")}. Ese espacio se cuenta más de una vez en la suma.` : null;
+}
 
 export function TotalsCard({ totals, previousLabel, currentLabel }: { totals: VolumeTotals | undefined; previousLabel: string; currentLabel: string }) {
   if (!totals || !totals.available) return null;
@@ -40,7 +48,9 @@ export function TotalsCard({ totals, previousLabel, currentLabel }: { totals: Vo
       </dl>
       <details className="notes-box">
         <summary>Cómo leer este total</summary>
-        <ul className="notes">{totals.warnings.map((w) => NOTES[w] && <li key={w}>{NOTES[w]}</li>)}</ul>
+        <ul className="notes">
+          {totals.warnings.map((w) => (w === "overlap_found" ? overlapNote(totals) : NOTES[w]) && <li key={w}>{w === "overlap_found" ? overlapNote(totals) : NOTES[w]}</li>)}
+        </ul>
       </details>
       {excluded.length > 0 && (
         <details>

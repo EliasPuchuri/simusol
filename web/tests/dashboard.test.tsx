@@ -126,6 +126,17 @@ describe("board", () => {
     expect(within(card).getByText(/orientación invertida/i)).toBeInTheDocument();
   });
 
+  it("tells how many solids overlap once the periods were analysed, and that the shared space is counted more than once", async () => {
+    const o = (pairs: number, m3: number) => ({ evaluated: true, pairs, pairwise_common_m3: m3 });
+    const t = { ...totals, previous: { ...totals.previous, overlap: o(2, 1686) }, current: { ...totals.current, overlap: o(1, 0.18) },
+      warnings: ["sum_of_bodies_not_union", "overlap_found"] };
+    await ready({ totals: t });
+    const card = screen.getByRole("region", { name: "Volumen total" });
+    expect(within(card).getByText(/2 pares en el periodo anterior \(1,686 m³ en común\) y 1 par en el periodo actual \(0.18 m³ en común\)/)).toBeInTheDocument();
+    expect(within(card).getByText(/se cuenta más de una vez/)).toBeInTheDocument();
+    expect(within(card).queryByText(/no se evaluó/)).not.toBeInTheDocument();
+  });
+
   it("lists the solids left out of the totals", async () => {
     const t = { ...totals, previous: { ...totals.previous, counted: 2, excluded: [{ key: "x_3", reason: "not_watertight:previous" }] }, warnings: [...totals.warnings, "excluded_solids"] };
     const user = await ready({ totals: t });

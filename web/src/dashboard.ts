@@ -43,6 +43,8 @@ export function filterRows(rows: Row[], f: Filters): Row[] {
 }
 
 const decimals = (v: number, n: number) => v.toLocaleString("es-PE", { minimumFractionDigits: n, maximumFractionDigits: n });
+/** Volume for text where small values matter (shared overlaps): decimals under 10 m³, whole numbers above. */
+export const volumeShort = (v: number | null | undefined) => (v == null ? "—" : v < 10 ? v.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : int(v));
 export const volumeExact = (v: number | null | undefined) => (v == null ? "—" : decimals(v, 3));
 
 /** Volume difference as the table shows it: a removed solid lost all of it; a new one has no base to compare with. */

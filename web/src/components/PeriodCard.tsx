@@ -7,6 +7,7 @@ import { runPool } from "../pool";
 import { DropZone } from "./DropZone";
 import { OrientationReference } from "./OrientationReference";
 import { CharacterizationPanel } from "./CharacterizationPanel";
+import { OverlapPanel } from "./OverlapPanel";
 import { QualityPanel } from "./QualityPanel";
 
 type Props = {
@@ -236,6 +237,7 @@ export function PeriodCard({ title, folderAria, modelName, saved, onReady, onCha
         <details className="advanced">
           <summary>Calidad de las mallas y orientación (opcional)</summary>
           {total > 0 && <QualityPanel datasetId={datasetId} refreshKey={total} />}
+          {total > 1 && done && <OverlapPanel datasetId={datasetId} refreshKey={total} />}
           {total > 0 && <CharacterizationPanel datasetId={datasetId} refreshKey={total + (detail.orientation_reference_count ?? 0)} />}
           <OrientationReference datasetId={datasetId} periodTitle={title} storedCount={detail.orientation_reference_count ?? 0}
             onSaved={() => load(datasetId)} />

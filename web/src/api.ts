@@ -119,7 +119,17 @@ export type VolumeTotals =
       difference_pct: number | null;
       warnings: string[];
     };
-export type PeriodTotal = { sum_m3: number; counted: number; total: number; excluded: { key: string; reason: string }[] };
+export type PeriodOverlap = { evaluated: boolean; pairs: number | null; pairwise_common_m3: number | null };
+export type PeriodTotal = { sum_m3: number; counted: number; total: number; excluded: { key: string; reason: string }[]; overlap?: PeriodOverlap };
+export type OverlapPair = {
+  a: string; b: string; key_a: string; key_b: string; status: string; relation: "overlap" | "contact" | "not_evaluable" | null;
+  common_m3: number | null; common_pct_of_smaller: number | null; reason: string | null; warnings: string[];
+};
+export type OverlapReport = {
+  run: QcRun | null; evaluated: boolean;
+  summary: { solids: number; pairs: number; discarded: number; overlapping: number; contact: number; disjoint: number; not_evaluable: number; failed: number; pending: number; unreadable: string[] };
+  pairs: OverlapPair[];
+};
 export type ComparisonRow = {
   key: string;
   previous_filename: string | null;
@@ -219,6 +229,8 @@ export const api = {
   finalize: (id: string) => request<Dataset>(`/api/v1/datasets/${id}/finalize`, { method: "POST" }),
   getQc: (id: string) => request<QcReport>(`/api/v1/datasets/${id}/qc`),
   startQc: (id: string) => request<QcRun>(`/api/v1/datasets/${id}/qc`, { method: "POST" }),
+  getOverlaps: (id: string) => request<OverlapReport>(`/api/v1/datasets/${id}/overlaps`),
+  startOverlaps: (id: string) => request<QcRun>(`/api/v1/datasets/${id}/overlaps`, { method: "POST" }),
   getCharacterization: (id: string) => request<CharReport>(`/api/v1/datasets/${id}/characterization`),
   startCharacterization: (id: string) => request<QcRun>(`/api/v1/datasets/${id}/characterization`, { method: "POST" }),
   characterizationCsvUrl: (id: string) => `/api/v1/datasets/${id}/characterization.csv`,

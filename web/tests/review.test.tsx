@@ -116,7 +116,7 @@ describe("area reviews", () => {
   it("shows which solids already have an opinion", async () => {
     localStorage.setItem("simusol.reviewer", "Ingeniera");
     await ready([{ key: "b_3", reviewer: "Ingeniera", agrees: false, comment: "x", expected_state: "SIN CAMBIOS" }]);
-    expect(within(panel()).getByText("Tu opinión: con observaciones")).toBeInTheDocument();
+    expect(await within(panel()).findByText("Tu opinión: con observaciones")).toBeInTheDocument();
   });
 
   it("lets the reviewer write a general observation and download all opinions", async () => {
