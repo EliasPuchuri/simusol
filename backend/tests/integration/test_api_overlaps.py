@@ -92,3 +92,31 @@ def test_a_period_with_fewer_than_two_solids_cannot_be_analysed(client):
 def test_unknown_period_is_404(client):
     assert client.post("/api/v1/datasets/nope/overlaps").status_code == 404
     assert client.get("/api/v1/datasets/nope/overlaps").status_code == 404
+
+
+def _csv_rows(client, dataset_id):
+    import csv
+    import io
+
+    text = client.get(f"/api/v1/datasets/{dataset_id}/qc.csv").content.decode("utf-8-sig")
+    return {r["Archivo"]: r for r in csv.DictReader(io.StringIO(text), delimiter=";")}
+
+
+def test_the_part_0_report_says_not_evaluated_until_the_overlaps_were_searched(client):
+    d = period(client, {"a.obj": cube(at(), 10), "b.obj": cube(at(5), 10)})
+    assert {r["Superposicion_con_otros_cuerpos"] for r in _csv_rows(client, d).values()} == {"no_evaluada"}
+
+
+def test_the_part_0_report_names_the_solids_each_one_overlaps_and_says_none_when_there_are_none(client):
+    d = period(client, {"a.obj": cube(at(), 10), "b.obj": cube(at(5), 10), "far.obj": cube(at(500), 10)})
+    run(client, d)
+    rows = _csv_rows(client, d)
+    assert rows["a.obj"]["Superposicion_con_otros_cuerpos"] == "b.obj"
+    assert rows["b.obj"]["Superposicion_con_otros_cuerpos"] == "a.obj"      # the pair is one finding, shown from both sides
+    assert rows["far.obj"]["Superposicion_con_otros_cuerpos"] == "ninguno"
+
+
+def test_contact_only_is_not_listed_as_an_overlap_in_the_report(client):
+    d = period(client, {"a.obj": cube(at(), 10), "b.obj": cube(at(10), 10)})
+    run(client, d)
+    assert {r["Superposicion_con_otros_cuerpos"] for r in _csv_rows(client, d).values()} == {"ninguno"}

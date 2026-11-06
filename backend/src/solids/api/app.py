@@ -417,7 +417,7 @@ def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_
     def get_qc_csv(dataset_id: str) -> Response:
         dataset = dataset_or_404(dataset_id)
         return Response(
-            qc_csv(dataset["period_label"], qc_rows(dataset_id)),
+            qc_csv(dataset["period_label"], qc_rows(dataset_id), overlaps.partners(dataset_id)),
             media_type="text/csv; charset=utf-8",
             headers={"Content-Disposition": 'attachment; filename="reporte_parte0.csv"'},
         )

@@ -157,3 +157,15 @@ class OverlapService:
                               "warnings": result.get("warnings", [])})
         pairs.sort(key=lambda p: (-(p["common_m3"] or 0.0), p["a"], p["b"]))
         return {"run": run, "evaluated": True, "summary": summary, "pairs": pairs}
+
+    def partners(self, dataset_id: str) -> dict[str, list[str]] | None:
+        """For each solid, the solids it shares volume with. None until the analysis of the period is complete."""
+        report = self.report(dataset_id)
+        if not report["evaluated"] or report["summary"]["pending"]:
+            return None
+        found: dict[str, list[str]] = {e["filename"]: [] for e in self._catalog.files(dataset_id)}
+        for pair in report["pairs"]:
+            if pair["relation"] == "overlap":
+                found[pair["a"]].append(pair["b"])
+                found[pair["b"]].append(pair["a"])
+        return {name: sorted(others) for name, others in found.items()}

@@ -23,8 +23,18 @@ def _blank(value) -> str:
     return "" if value is None else str(value)
 
 
-def qc_csv(period_label: str, rows: list[dict]) -> bytes:
-    """UTF-8 with BOM, ';' separator, '.' decimals. Unavailable values stay empty: never 0."""
+def _overlap_cell(overlaps: dict[str, list[str]] | None, filename: str) -> str:
+    if overlaps is None:
+        return "no_evaluada"
+    names = overlaps.get(filename, [])
+    return text_cell("; ".join(names)) if names else "ninguno"
+
+
+def qc_csv(period_label: str, rows: list[dict], overlaps: dict[str, list[str]] | None = None) -> bytes:
+    """UTF-8 with BOM, ';' separator, '.' decimals. Unavailable values stay empty: never 0.
+
+    ``overlaps`` maps each file to the solids it shares volume with; None means the search was not run.
+    """
     out = io.StringIO()
     writer = csv.writer(out, delimiter=";", lineterminator="\r\n")
     writer.writerow(COLUMNS)
@@ -42,6 +52,6 @@ def qc_csv(period_label: str, rows: list[dict]) -> bytes:
             _blank(result.get("degenerate_faces")),
             _blank(None if components.get("value") is None else int(components["value"])),
             _blank(None if self_int.get("value") is None else int(self_int["value"])),
-            "; ".join(result.get("problems", [])), "no_evaluada", text_cell(_blank(result.get("error"))),
+            "; ".join(result.get("problems", [])), _overlap_cell(overlaps, row["filename"]), text_cell(_blank(result.get("error"))),
         ])
     return ("﻿" + out.getvalue()).encode("utf-8")
