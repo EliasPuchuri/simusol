@@ -175,6 +175,45 @@ def test_total_volumes_sum_every_solid_of_each_period_and_say_what_they_are(env)
     assert {"sum_of_bodies_not_union", "overlap_not_evaluated"} <= set(t["warnings"])
 
 
+def _find_overlaps(client, dataset_id, timeout=120):
+    client.post(f"/api/v1/datasets/{dataset_id}/overlaps")
+    end = time.time() + timeout
+    while time.time() < end:
+        body = client.get(f"/api/v1/datasets/{dataset_id}/overlaps").json()
+        if body["run"] and body["run"]["state"] in DONE:
+            return body
+        time.sleep(0.3)
+    raise AssertionError("overlap run did not finish")
+
+
+def test_totals_say_the_overlaps_were_not_evaluated_until_they_are(env):
+    client, _, _ = env
+    t = run(client, *standard(client))["totals"]
+    assert t["previous"]["overlap"] == {"evaluated": False, "pairs": None, "pairwise_common_m3": None}
+    assert "overlap_not_evaluated" in t["warnings"] and "overlap_found" not in t["warnings"]
+
+
+def test_totals_report_how_many_solids_overlap_once_each_period_was_analysed(env):
+    client, _, _ = env
+    prev, curr = standard(client)
+    _find_overlaps(client, prev)
+    _find_overlaps(client, curr)
+    t = run(client, prev, curr)["totals"]
+    assert t["previous"]["overlap"]["evaluated"] is True and t["previous"]["overlap"]["pairs"] == 3
+    assert t["previous"]["overlap"]["pairwise_common_m3"] == pytest.approx(1000 + 343 + 343)
+    assert t["current"]["overlap"]["pairs"] == 3 and t["current"]["overlap"]["pairwise_common_m3"] == pytest.approx(200 + 729 + 121.5)
+    assert "overlap_found" in t["warnings"] and "overlap_not_evaluated" not in t["warnings"]
+
+
+def test_only_one_period_analysed_still_counts_as_not_evaluated(env):
+    client, _, _ = env
+    prev, curr = standard(client)
+    _find_overlaps(client, prev)
+    t = run(client, prev, curr)["totals"]
+    assert t["previous"]["overlap"]["evaluated"] is True and t["current"]["overlap"]["evaluated"] is False
+    assert "overlap_not_evaluated" in t["warnings"]
+
+
 def test_totals_are_not_available_before_the_comparison_is_calculated(env):
     client, _, _ = env
     prev, curr = standard(client)

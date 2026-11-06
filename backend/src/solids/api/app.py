@@ -554,7 +554,15 @@ def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_
                                         f"({', '.join(incident.detail['filenames'])}); no se elige ninguno."})
         return sorted(rows, key=lambda r: r["key"])
 
-    def comparison_totals(rows: list[dict]) -> dict:
+    def period_overlap(dataset_id: str) -> dict:
+        """What the overlap analysis of a period says, for the totals: pairs that share volume and how much."""
+        report = overlaps.report(dataset_id)
+        if not report["evaluated"] or report["summary"]["pending"]:
+            return {"evaluated": False, "pairs": None, "pairwise_common_m3": None}
+        shared = [p for p in report["pairs"] if p["relation"] == "overlap"]
+        return {"evaluated": True, "pairs": len(shared), "pairwise_common_m3": sum(p["common_m3"] for p in shared)}
+
+    def comparison_totals(rows: list[dict], previous_id: str, current_id: str) -> dict:
         """Sum of the provisional volumes of every solid of each period (a sum of bodies, not a union)."""
         if any(r["status"] == "pending" for r in rows):
             return {"available": False, "reason": "pending"}
@@ -578,12 +586,18 @@ def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_
                 else:
                     counted += 1
                     sum_m3 += volume
-            out[role] = {"sum_m3": sum_m3, "counted": counted, "total": total, "excluded": excluded}
+            out[role] = {"sum_m3": sum_m3, "counted": counted, "total": total, "excluded": excluded,
+                         "overlap": period_overlap(previous_id if role == "previous" else current_id)}
         any_flip = any(w.startswith("inverted_orientation_normalized") for r in rows for w in r["warnings"])
         diff = out["current"]["sum_m3"] - out["previous"]["sum_m3"]
         out["difference_m3"] = diff
         out["difference_pct"] = 100 * diff / out["previous"]["sum_m3"] if out["previous"]["sum_m3"] else None
-        warnings = ["sum_of_bodies_not_union", "overlap_not_evaluated"]
+        overlap = [out["previous"]["overlap"], out["current"]["overlap"]]
+        warnings = ["sum_of_bodies_not_union"]
+        if not all(o["evaluated"] for o in overlap):
+            warnings.append("overlap_not_evaluated")
+        if any(o["pairs"] for o in overlap):
+            warnings.append("overlap_found")
         if any_flip:
             warnings.append("orientation_normalized")
         if out["previous"]["excluded"] or out["current"]["excluded"]:
@@ -608,7 +622,7 @@ def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_
         summary["sin_clasificar"] = sum(r["state"] is None and r["status"] in ("failed", "incident") for r in rows)
         summary["pendientes"] = sum(r["status"] == "pending" for r in rows)
         return {"run": catalog.latest_comparison_run(previous, current), "provisional": True, "profile": PROFILE_ID,
-                "summary": summary, "totals": comparison_totals(rows), "rows": rows}
+                "summary": summary, "totals": comparison_totals(rows, previous, current), "rows": rows}
 
     @router.put("/comparisons/reviews")
     def put_review(body: ReviewIn) -> dict:
