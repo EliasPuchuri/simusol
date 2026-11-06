@@ -169,3 +169,21 @@ class OverlapService:
                 found[pair["a"]].append(pair["b"])
                 found[pair["b"]].append(pair["a"])
         return {name: sorted(others) for name, others in found.items()}
+
+    def ensure_bounds(self, dataset_id: str) -> None:
+        """Make sure every solid of the period has its box cached (the spatial check and the overlaps share it)."""
+        self._boxes(self._catalog.files(dataset_id))
+
+    def extent(self, dataset_id: str):
+        """Joint box of every solid of the period, or None while any of them has no cached box."""
+        boxes = []
+        for entry in self._catalog.files(dataset_id):
+            result = self._catalog.get_cached("single", entry["sha256"], BOUNDS_VERSION)
+            if result is None or result.get("status") != "ok":
+                return None
+            boxes.append((result["min"], result["max"]))
+        if not boxes:
+            return None
+        low = tuple(min(b[0][i] for b in boxes) for i in range(3))
+        high = tuple(max(b[1][i] for b in boxes) for i in range(3))
+        return low, high

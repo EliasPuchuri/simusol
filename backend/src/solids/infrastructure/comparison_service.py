@@ -17,7 +17,8 @@ from solids.infrastructure.qc_runner import IsolatedAnalyzer
 class ComparisonService:
     def __init__(self, catalog: Catalog, files_dir: Path, *, target: str, version: str, timeout: float,
                  failure: Callable[[str], dict], slot: threading.Lock, single_target: str,
-                 single_failure: Callable[[str], dict]) -> None:
+                 single_failure: Callable[[str], dict], prepare: Callable[[str], None] | None = None) -> None:
+        self._prepare = prepare  # per-period step before comparing (boxes for the spatial check); never fatal
         self._single_target, self._single_failure = single_target, single_failure
         self._catalog, self._files_dir = catalog, files_dir
         self._target, self._version, self._timeout = target, version, timeout
@@ -64,6 +65,12 @@ class ComparisonService:
         run = self._catalog.get_comparison_run(run_id)
         pairs, singles = self._plan(run["previous_id"], run["current_id"])
         self._catalog.update_comparison_run(run_id, state="running", done=0)
+        for dataset_id in (run["previous_id"], run["current_id"]):
+            try:
+                if self._prepare is not None:
+                    self._prepare(dataset_id)
+            except Exception:
+                pass  # the check is informative: a failure here must not stop the comparison
         analyzer: IsolatedAnalyzer | None = None
         single_analyzer: IsolatedAnalyzer | None = None
         failed = 0

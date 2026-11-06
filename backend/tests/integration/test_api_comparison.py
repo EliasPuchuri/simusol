@@ -23,8 +23,8 @@ def env(tmp_path, monkeypatch):
         yield client, tmp_path, log
 
 
-def period(client, label, files, close=True):
-    d = client.post("/api/v1/datasets", json={"name": "M", "period_label": label, "period_kind": "annual"}).json()
+def period(client, label, files, close=True, **meta):
+    d = client.post("/api/v1/datasets", json={"name": "M", "period_label": label, "period_kind": "annual", **meta}).json()
     for name, content in files.items():
         assert client.post(f"/api/v1/datasets/{d['id']}/files", files={"file": (name, content)}).status_code == 201
     if close:
@@ -250,3 +250,43 @@ def test_singles_are_reused_by_content_hash(env):
     done = len(log.read_text().split())
     run(client, prev, curr)
     assert len(log.read_text().split()) == done
+
+
+def test_spatial_check_says_undeclared_when_nobody_declared_a_reference_and_still_checks_the_extents(env):
+    client, _, _ = env
+    body = run(client, *standard(client))
+    sp = body["spatial"]
+    assert sp["status"] == "undeclared" and sp["extent_checked"] is True
+    assert {"spatial_reference_undeclared", "units_undeclared"} <= set(sp["issues"])
+
+
+def test_spatial_check_is_compatible_when_both_periods_declare_the_same_system(env):
+    client, _, _ = env
+    meta = {"spatial_reference": "UTM 18S WGS84", "units": "m"}
+    prev = period(client, "2025", {"a_3pt.obj": obj_bytes(cube(U))}, **meta)
+    curr = period(client, "2026", {"a_3.obj": obj_bytes(cube(U))}, **meta)
+    sp = run(client, prev, curr)["spatial"]
+    assert sp["status"] == "compatible" and sp["issues"] == [] and sp["declared"]["previous"]["units"] == "m"
+
+
+def test_spatial_check_flags_periods_that_declare_different_systems(env):
+    client, _, _ = env
+    prev = period(client, "2025", {"a_3pt.obj": obj_bytes(cube(U))}, spatial_reference="UTM 18S", units="m")
+    curr = period(client, "2026", {"a_3.obj": obj_bytes(cube(U))}, spatial_reference="UTM 19S", units="m")
+    assert run(client, prev, curr)["spatial"]["status"] == "mismatch"
+
+
+def test_spatial_check_flags_periods_whose_extents_do_not_overlap(env):
+    client, _, _ = env
+    meta = {"spatial_reference": "UTM 18S", "units": "m"}
+    prev = period(client, "2025", {"a_3pt.obj": obj_bytes(cube(U))}, **meta)
+    curr = period(client, "2026", {"a_3.obj": obj_bytes(cube((U[0] + 50_000.0, U[1], U[2])))}, **meta)
+    sp = run(client, prev, curr)["spatial"]
+    assert sp["status"] == "extent_disjoint" and sp["issues"] == ["extent_disjoint"]
+
+
+def test_before_the_run_the_extents_are_not_known_so_they_are_not_checked(env):
+    client, _, _ = env
+    prev, curr = standard(client)
+    sp = client.get("/api/v1/comparisons", params={"previous": prev, "current": curr}).json()["spatial"]
+    assert sp["extent_checked"] is False

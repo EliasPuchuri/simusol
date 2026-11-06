@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, model_validator
 from solids.domain.inventory import Inventory, InventoryEntry
 from solids.domain.comparison_rules import PROFILE_ID
 from solids.domain.matching import match_inventories
+from solids.domain.spatial import assess as assess_spatial
 from solids.domain.pair_assembly import classify_result, orientation_input, rules_input
 from solids.geometry.scene import common_origin, export_glb, load_obj, to_scene_coordinates
 from solids.domain.naming import normalize_key
@@ -126,11 +127,12 @@ def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_
     characterization = AnalysisService(catalog, files_dir, kind="characterization", target=char_target,
                                        version=char_mod.CHAR_VERSION, timeout=char_timeout,
                                        failure=char_mod.failed_result, slot=heavy_slot)
-    comparison = ComparisonService(catalog, files_dir, target=compare_target, version=pair_mod.PAIR_VERSION,
-                                   timeout=compare_timeout, failure=pair_mod.failed_result, slot=heavy_slot,
-                                   single_target=single_target, single_failure=pair_mod.failed_single_result)
     overlaps = OverlapService(catalog, files_dir, bounds_target=overlap_bounds_target, bounds_failure=overlaps_mod.failed_bounds_result,
                               target=overlap_target, failure=overlaps_mod.failed_overlap_result, timeout=overlap_timeout, slot=heavy_slot)
+    comparison = ComparisonService(catalog, files_dir, target=compare_target, version=pair_mod.PAIR_VERSION,
+                                   timeout=compare_timeout, failure=pair_mod.failed_result, slot=heavy_slot,
+                                   single_target=single_target, single_failure=pair_mod.failed_single_result,
+                                   prepare=overlaps.ensure_bounds)
     router = APIRouter(prefix="/api/v1")
 
     def dataset_or_404(dataset_id: str) -> dict:
@@ -614,6 +616,13 @@ def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_
         response.status_code = 202 if created else 200
         return run
 
+    def spatial_check(previous_id: str, current_id: str) -> dict:
+        sides = {}
+        for role, dataset_id in (("previous", previous_id), ("current", current_id)):
+            d = catalog.get_dataset(dataset_id)
+            sides[role] = {"spatial_reference": d.get("spatial_reference"), "units": d.get("units"), "extent": overlaps.extent(dataset_id)}
+        return assess_spatial(sides["previous"], sides["current"])
+
     @router.get("/comparisons")
     def get_comparison(previous: str, current: str) -> dict:
         closed_pair(previous, current)
@@ -622,7 +631,8 @@ def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_
         summary["sin_clasificar"] = sum(r["state"] is None and r["status"] in ("failed", "incident") for r in rows)
         summary["pendientes"] = sum(r["status"] == "pending" for r in rows)
         return {"run": catalog.latest_comparison_run(previous, current), "provisional": True, "profile": PROFILE_ID,
-                "summary": summary, "totals": comparison_totals(rows, previous, current), "rows": rows}
+                "summary": summary, "totals": comparison_totals(rows, previous, current), "spatial": spatial_check(previous, current),
+                "rows": rows}
 
     @router.put("/comparisons/reviews")
     def put_review(body: ReviewIn) -> dict:
