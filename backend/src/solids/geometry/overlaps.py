@@ -16,15 +16,19 @@ from solids.geometry.pair_metrics import _signed_volume, surface_distances
 from solids.geometry.qc import _edge_counts
 from solids.geometry.scene import common_origin, load_obj
 
-OVERLAP_VERSION = "overlap-1"
+OVERLAP_VERSION = "overlap-2"
 TOLERANCE = 1e-6          # relative to the smaller volume: numerical noise of the boolean, never a way to hide an error
-CONTACT_FRACTION = 1e-9   # common volume below this fraction of the smaller solid is not an overlap
+OVERLAP_MIN_M3 = 1e-3     # one litre: below it the common volume is numerical noise (adjacent bodies sharing a face gave up to 2.5e-5)
+CONTACT_FRACTION = 1e-9   # ... and it must also be above this fraction of the smaller solid
 CONTACT_M = 0.01          # solids without common volume but a vertex this close to the other surface are in contact
 CONTACT_SAMPLE = 2000     # vertices tested per solid: bounded cost, evenly spaced
 
 
 def _bounds_failed(error: str) -> dict[str, Any]:
     return {"version": OVERLAP_VERSION, "status": "failed", "error": error, "min": None, "max": None}
+
+
+failed_bounds_result = _bounds_failed
 
 
 def compute_bounds(path: Path) -> dict[str, Any]:
@@ -104,7 +108,7 @@ def compute_overlap(path_a: Path, path_b: Path) -> dict[str, Any]:
     except Exception as exc:
         out["reason"] = f"boolean_failed: {exc}"[:200]
         return out
-    if common > smaller * CONTACT_FRACTION:
+    if common >= OVERLAP_MIN_M3 and common > smaller * CONTACT_FRACTION:
         relation = "overlap"
     else:
         try:

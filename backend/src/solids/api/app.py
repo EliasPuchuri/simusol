@@ -29,6 +29,7 @@ from solids.exports.comparison_csv import comparison_csv
 from solids.exports.qc_csv import qc_csv
 from solids.exports.review_csv import review_csv
 from solids.geometry import characterization as char_mod
+from solids.geometry import overlaps as overlaps_mod
 from solids.geometry import pair_metrics as pair_mod
 from solids.geometry import regions as regions_mod
 from solids.geometry.qc import QC_VERSION, failed_result as qc_failed_result
@@ -36,6 +37,7 @@ from solids.infrastructure.catalog import Catalog, Conflict, Invalid, NotFound
 from solids.infrastructure.qc_runner import DEFAULT_TARGET, DEFAULT_TIMEOUT
 from solids.infrastructure.analysis_service import AnalysisService
 from solids.infrastructure.comparison_service import ComparisonService
+from solids.infrastructure.overlap_service import OverlapService
 from solids.infrastructure.qc_runner import IsolatedAnalyzer
 from solids.infrastructure.obj_probe import ObjProbe
 
@@ -105,7 +107,10 @@ def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_
                compare_timeout: float = 300.0,
                single_target: str = "solids.geometry.pair_metrics:compute_single",
                regions_target: str = "solids.geometry.regions:compute_regions",
-               regions_timeout: float = 120.0) -> FastAPI:
+               regions_timeout: float = 120.0,
+               overlap_bounds_target: str = "solids.geometry.overlaps:compute_bounds",
+               overlap_target: str = "solids.geometry.overlaps:compute_overlap",
+               overlap_timeout: float = 300.0) -> FastAPI:
     data_dir = Path(data_dir)
     files_dir = data_dir / "originals"
     files_dir.mkdir(parents=True, exist_ok=True)
@@ -124,6 +129,8 @@ def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_
     comparison = ComparisonService(catalog, files_dir, target=compare_target, version=pair_mod.PAIR_VERSION,
                                    timeout=compare_timeout, failure=pair_mod.failed_result, slot=heavy_slot,
                                    single_target=single_target, single_failure=pair_mod.failed_single_result)
+    overlaps = OverlapService(catalog, files_dir, bounds_target=overlap_bounds_target, bounds_failure=overlaps_mod.failed_bounds_result,
+                              target=overlap_target, failure=overlaps_mod.failed_overlap_result, timeout=overlap_timeout, slot=heavy_slot)
     router = APIRouter(prefix="/api/v1")
 
     def dataset_or_404(dataset_id: str) -> dict:
@@ -391,6 +398,20 @@ def create_app(data_dir: Path, max_file_bytes: int = DEFAULT_MAX_FILE_BYTES, qc_
             results.append({"filename": row["filename"], "key": row["key"], "size_bytes": row["size_bytes"],
                             **(result or {"problems": [], "error": None}), "status": status})
         return {"run": catalog.latest_qc_run(dataset_id), "summary": summary, "results": results}
+
+    @router.post("/datasets/{dataset_id}/overlaps", status_code=202)
+    def start_overlaps(dataset_id: str, response: Response) -> dict:
+        dataset_or_404(dataset_id)
+        if len(catalog.files(dataset_id)) < 2:
+            raise HTTPException(422, "the period needs at least two solids to look for overlaps")
+        run, created = overlaps.submit(dataset_id)
+        response.status_code = 202 if created else 200
+        return run
+
+    @router.get("/datasets/{dataset_id}/overlaps")
+    def get_overlaps(dataset_id: str) -> dict:
+        dataset_or_404(dataset_id)
+        return overlaps.report(dataset_id)
 
     @router.get("/datasets/{dataset_id}/qc.csv")
     def get_qc_csv(dataset_id: str) -> Response:

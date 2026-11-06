@@ -47,6 +47,11 @@ CREATE TABLE IF NOT EXISTS qc_runs (
     total INTEGER NOT NULL, done INTEGER NOT NULL DEFAULT 0, error TEXT,
     created_at TEXT NOT NULL, finished_at TEXT
 );
+CREATE TABLE IF NOT EXISTS overlap_runs (
+    id TEXT PRIMARY KEY, dataset_id TEXT NOT NULL REFERENCES datasets(id), state TEXT NOT NULL,
+    total INTEGER NOT NULL, done INTEGER NOT NULL DEFAULT 0, error TEXT,
+    created_at TEXT NOT NULL, finished_at TEXT
+);
 CREATE TABLE IF NOT EXISTS characterization_cache (
     sha256 TEXT NOT NULL, version TEXT NOT NULL, status TEXT NOT NULL,
     result_json TEXT NOT NULL, computed_at TEXT NOT NULL, PRIMARY KEY (sha256, version)
@@ -234,6 +239,7 @@ class Catalog:
         "qc": ("qc_cache", "qc_version", "qc_runs"),
         "characterization": ("characterization_cache", "version", "characterization_runs"),
         "single": ("single_cache", "version", None),  # cache only: singles run inside a comparison run
+        "overlap": (None, None, "overlap_runs"),  # pair results live in pair_cache under their own version
     }
 
     def _t(self, kind: str) -> tuple[str, str, str | None]:

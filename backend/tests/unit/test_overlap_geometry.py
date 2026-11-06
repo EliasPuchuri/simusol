@@ -57,6 +57,16 @@ def test_faces_that_only_touch_are_contact_not_overlap(tmp_path):
     assert r["relation"] == "contact" and r["common_m3"] == pytest.approx(0.0, abs=1e-6)
 
 
+def test_a_sliver_below_a_litre_is_numerical_noise_so_it_counts_as_contact(tmp_path):
+    r = overlap(tmp_path, cube(at(), 1), cube(at(dx=1 - 1e-4), 1))      # 1 m cubes overlapping by 0.1 mm: 1e-4 m3
+    assert r["relation"] == "contact" and 0 < r["common_m3"] < 1e-3
+
+
+def test_a_thin_but_real_overlap_above_a_litre_is_reported(tmp_path):
+    r = overlap(tmp_path, cube(at(), 1), cube(at(dx=1 - 1e-2), 1))      # 1 cm deep: 1e-2 m3
+    assert r["relation"] == "overlap" and r["common_m3"] == pytest.approx(1e-2, rel=1e-3)
+
+
 def test_inverted_orientation_is_normalised_on_a_copy_and_flagged(tmp_path):
     r = overlap(tmp_path, cube(at(), 10, invert=True), cube(at(dx=5), 10))
     assert r["relation"] == "overlap" and r["common_m3"] == pytest.approx(500.0, rel=1e-6)
